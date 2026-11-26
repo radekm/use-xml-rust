@@ -240,10 +240,35 @@ fn mixed_content_text_after_child() {
 
 #[test]
 fn mixed_content_cdata_after_child() {
-    assert!(matches!(
-        parse_str("<a><b/><![CDATA[]]></a>").map_err(Error::into_kind),
-        Err(ErrorKind::MixedContent { .. })
-    ));
+    assert_eq!(
+        parse_str("<r>\n<a><b/><![CDATA[]]></a></r>").unwrap_err(),
+        ErrorKind::MixedContent {
+            path: "/r/a[1]".to_owned(),
+            position: pos(2, 1)
+        }
+    );
+}
+
+#[test]
+fn mixed_content_entity_reference_after_child() {
+    assert_eq!(
+        parse_str("<a><b/>&amp;</a>").unwrap_err(),
+        ErrorKind::MixedContent {
+            path: "/a".to_owned(),
+            position: pos(1, 1)
+        }
+    );
+}
+
+#[test]
+fn mixed_content_entity_reference_before_child() {
+    assert_eq!(
+        parse_str("<a>&#65;<b/></a>").unwrap_err(),
+        ErrorKind::MixedContent {
+            path: "/a".to_owned(),
+            position: pos(1, 1)
+        }
+    );
 }
 
 #[test]
@@ -346,10 +371,20 @@ fn second_root_is_not_allowed() {
 
 #[test]
 fn xml_declaration_must_be_first() {
-    assert!(matches!(
-        parse_str(" <?xml version=\"1.0\"?><a/>").map_err(Error::into_kind),
-        Err(ErrorKind::UnexpectedNode { .. }) | Err(ErrorKind::Xml { .. })
-    ));
+    assert_eq!(
+        parse_str(" <?xml version=\"1.0\"?><a/>").unwrap_err(),
+        ErrorKind::UnexpectedNode {
+            node: "XML declaration".to_owned(),
+            position: pos(1, 2)
+        }
+    );
+    assert_eq!(
+        parse_str("<?pi?><?xml version=\"1.0\"?><a/>").unwrap_err(),
+        ErrorKind::UnexpectedNode {
+            node: "XML declaration".to_owned(),
+            position: pos(1, 7)
+        }
+    );
 }
 
 #[test]
@@ -383,33 +418,50 @@ fn very_deep_document_does_not_overflow_stack() {
 
 #[test]
 fn missing_root_element() {
-    assert!(matches!(
-        parse_str(r#"<?xml version="1.0" encoding="utf-8"?>"#).map_err(Error::into_kind),
-        Err(ErrorKind::Xml { .. })
-    ));
-    assert!(matches!(
-        parse_str("").map_err(Error::into_kind),
-        Err(ErrorKind::Xml { .. })
-    ));
+    assert_eq!(
+        parse_str(r#"<?xml version="1.0" encoding="utf-8"?>"#).unwrap_err(),
+        ErrorKind::Xml {
+            message: "missing root element".to_owned(),
+            position: pos(1, 39)
+        }
+    );
+    assert_eq!(
+        parse_str("").unwrap_err(),
+        ErrorKind::Xml {
+            message: "missing root element".to_owned(),
+            position: pos(1, 1)
+        }
+    );
+}
+
+/// Asserts that parsing fails with [`ErrorKind::Xml`] and returns the reported position.
+fn xml_error_position(input: &str) -> Position {
+    match parse_str(input).unwrap_err().into_kind() {
+        ErrorKind::Xml { position, .. } => position,
+        e => panic!("expected malformed XML error, got {e:?}"),
+    }
 }
 
 #[test]
 fn different_closing_tag() {
-    assert!(matches!(
-        parse_str("<root>\n  <a></b>\n</root>").map_err(Error::into_kind),
-        Err(ErrorKind::Xml {
-            position: Position { line: 2, .. },
-            ..
-        })
-    ));
+    // Points to `</b>`.
+    assert_eq!(xml_error_position("<root>\n  <a></b>\n</root>"), pos(2, 6));
 }
 
 #[test]
 fn missing_closing_tag() {
-    assert!(matches!(
-        parse_str("<root><person>").map_err(Error::into_kind),
-        Err(ErrorKind::Xml { .. })
-    ));
+    assert_eq!(
+        parse_str("<root><person>").unwrap_err(),
+        ErrorKind::Xml {
+            message: "unexpected end of document".to_owned(),
+            position: pos(1, 15)
+        }
+    );
+}
+
+#[test]
+fn unclosed_comment() {
+    assert_eq!(xml_error_position("<a>\n  <!-- x</a>"), pos(2, 3));
 }
 
 // ---------------------------------------------------------------------------
@@ -571,9 +623,6 @@ fn children_can_be_used_once() -> anyhow::Result<()> {
 
 #[test]
 fn ignore_all_marks_everything_as_used() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a x="1"><b y="2">t</b>text-less</a>"#);
-    assert!(e.is_err()); // Mixed content.
-
     let e = parse_str(r#"<a x="1"><b y="2">t</b></a>"#)?;
     e.ignore_all();
     e.check_all_used()?;
@@ -744,5 +793,286 @@ fn positions_with_crlf_and_multibyte_characters() -> anyhow::Result<()> {
     assert_eq!(e.child("a")?.position(), pos(2, 1));
     assert_eq!(e.child("b")?.position(), pos(2, 11));
     assert_eq!(e.child("č")?.position(), pos(4, 3));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Rules without a test before the review.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unknown_entity_in_attribute() {
+    assert_eq!(
+        parse_str("<r>\n  <a x=\"&nbsp;\"/></r>").unwrap_err(),
+        ErrorKind::UnknownEntity {
+            name: "nbsp".to_owned(),
+            path: "/r/a[1]".to_owned(),
+            position: pos(2, 3)
+        }
+    );
+}
+
+#[test]
+fn references_outside_of_root_are_not_allowed() {
+    let reference = |position| ErrorKind::UnexpectedNode {
+        node: "entity reference outside of the root element".to_owned(),
+        position,
+    };
+    assert_eq!(parse_str("<a/>&amp;").unwrap_err(), reference(pos(1, 5)));
+    // Even a reference to a whitespace character is not whitespace.
+    assert_eq!(parse_str("&#32;<a/>").unwrap_err(), reference(pos(1, 1)));
+    assert_eq!(parse_str("<a/>\n&#x20;").unwrap_err(), reference(pos(2, 1)));
+    assert_eq!(parse_str("<a/>&nbsp;").unwrap_err(), reference(pos(1, 5)));
+}
+
+#[test]
+fn cdata_outside_of_root_is_not_allowed() {
+    let cdata = |position| ErrorKind::UnexpectedNode {
+        node: "CDATA section outside of the root element".to_owned(),
+        position,
+    };
+    assert_eq!(parse_str("<![CDATA[]]><a/>").unwrap_err(), cdata(pos(1, 1)));
+    assert_eq!(
+        parse_str("<a/>\n<![CDATA[ ]]>").unwrap_err(),
+        cdata(pos(2, 1))
+    );
+}
+
+#[test]
+fn text_outside_of_root_points_to_first_non_whitespace_character() {
+    let text = |position| ErrorKind::UnexpectedNode {
+        node: "text outside of the root element".to_owned(),
+        position,
+    };
+    assert_eq!(parse_str("  \n x<a/>").unwrap_err(), text(pos(2, 2)));
+    assert_eq!(parse_str("<a/>\n\n   x").unwrap_err(), text(pos(3, 4)));
+}
+
+#[test]
+fn doctype_and_declaration_after_root_are_not_allowed() {
+    assert_eq!(
+        parse_str("<a/>\n<!DOCTYPE a>").unwrap_err(),
+        ErrorKind::UnexpectedNode {
+            node: "DOCTYPE".to_owned(),
+            position: pos(2, 1)
+        }
+    );
+    assert_eq!(
+        parse_str(r#"<a/><?xml version="1.0"?>"#).unwrap_err(),
+        ErrorKind::UnexpectedNode {
+            node: "XML declaration".to_owned(),
+            position: pos(1, 5)
+        }
+    );
+}
+
+#[test]
+fn only_one_byte_order_mark_is_skipped() {
+    assert_eq!(
+        parse_str("\u{FEFF}\u{FEFF}<a/>").unwrap_err(),
+        ErrorKind::UnexpectedNode {
+            node: "text outside of the root element".to_owned(),
+            position: pos(1, 1)
+        }
+    );
+}
+
+#[test]
+fn attribute_syntax_errors_have_exact_positions() {
+    assert_eq!(
+        parse_str("<a x=1/>").unwrap_err(),
+        ErrorKind::Xml {
+            message: "attribute value must be enclosed in `\"` or `'`".to_owned(),
+            position: pos(1, 6)
+        }
+    );
+    assert_eq!(
+        parse_str("<a\n  x y='1'/>").unwrap_err(),
+        ErrorKind::Xml {
+            message: "attribute name must be directly followed by `=` or whitespace".to_owned(),
+            position: pos(2, 5)
+        }
+    );
+    assert_eq!(
+        parse_str("<a x= />").unwrap_err(),
+        ErrorKind::Xml {
+            message: "`=` must be followed by an attribute value".to_owned(),
+            position: pos(1, 7)
+        }
+    );
+}
+
+#[test]
+fn attribute_values_are_normalized() -> anyhow::Result<()> {
+    // Literal tabs and line breaks become spaces, character references are kept.
+    let e = parse_str("<a x=\"a\tb\r\nc\rd\ne&#10;f&#9;g\"/>")?;
+    assert_eq!(e.attr("x", parse::string)?, "a b c d e\nf\tg");
+    Ok(())
+}
+
+#[test]
+fn character_references_outside_of_bmp_are_decoded() -> anyhow::Result<()> {
+    let e = parse_str("<a>&#x1F600;&#128512;</a>")?;
+    assert_eq!(e.text(parse::string)?, "😀😀");
+    Ok(())
+}
+
+#[test]
+fn whitespace_only_cdata_must_be_used() -> anyhow::Result<()> {
+    let e = parse_str("<a><![CDATA[ ]]></a>")?;
+    assert_eq!(
+        e.check_all_used().unwrap_err(),
+        ErrorKind::Unused {
+            path: "/a".to_owned(),
+            position: pos(1, 1),
+            item: Item::Text
+        }
+    );
+    assert_eq!(e.text(parse::string)?, " ");
+    e.check_all_used()?;
+
+    // Whitespace-only text without CDATA does not need to be used.
+    parse_str("<a> \n\t </a>")?.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn max_depth_with_empty_element() -> anyhow::Result<()> {
+    let nested = |depth: usize| "<a>".repeat(depth - 1) + "<a/>" + &"</a>".repeat(depth - 1);
+    parse_str(&nested(MAX_DEPTH))?;
+    match parse_str(&nested(MAX_DEPTH + 1)).unwrap_err().into_kind() {
+        ErrorKind::MaxDepthExceeded {
+            path,
+            position,
+            max_depth,
+        } => {
+            assert_eq!(max_depth, MAX_DEPTH);
+            assert_eq!(position, pos(1, 3 * 256 + 1));
+            assert_eq!(path, "/a".to_owned() + &"/a[1]".repeat(255));
+        }
+        e => panic!("unexpected error {e:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn positions_with_lone_carriage_returns() -> anyhow::Result<()> {
+    let e = parse_str("<r>\r<a/>\r\r<b/>\r\n\r<c/></r>")?;
+    assert_eq!(e.child("a")?.position(), pos(2, 1));
+    assert_eq!(e.child("b")?.position(), pos(4, 1));
+    assert_eq!(e.child("c")?.position(), pos(6, 1));
+    Ok(())
+}
+
+#[test]
+fn positions_with_characters_outside_of_bmp() -> anyhow::Result<()> {
+    // `😀` is one Unicode scalar value (four bytes in UTF-8, two UTF-16 code units).
+    let e = parse_str("<r><a x=\"😀\"/>\t<b/></r>")?;
+    assert_eq!(e.child("a")?.position(), pos(1, 4));
+    assert_eq!(e.child("b")?.position(), pos(1, 15));
+    Ok(())
+}
+
+#[test]
+fn missing_names_are_already_used_after_ignore_all() -> anyhow::Result<()> {
+    let e = parse_str("<a><b/></a>")?;
+    let b = e.child("b")?;
+    e.ignore_all();
+    assert_eq!(
+        e.attr_opt("x", parse::string).unwrap_err(),
+        already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+    );
+    assert_eq!(
+        e.child_opt("y").unwrap_err(),
+        already_used("/a", pos(1, 1), Item::Child("y".to_owned()))
+    );
+    assert_eq!(
+        b.children("z").unwrap_err(),
+        already_used("/a/b[1]", pos(1, 4), Item::Child("z".to_owned()))
+    );
+    e.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn ignore_all_on_child_does_not_hide_unused_siblings() -> anyhow::Result<()> {
+    let e = parse_str(r#"<a><b x="1"/><b y="2"/></a>"#)?;
+    e.children("b")?[0].ignore_all();
+    assert_eq!(
+        e.check_all_used().unwrap_err(),
+        ErrorKind::Unused {
+            path: "/a/b[2]".to_owned(),
+            position: pos(1, 14),
+            item: Item::Attr("y".to_owned())
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn value_parser_can_use_the_same_element() -> anyhow::Result<()> {
+    // Usage tracking must not be borrowed while a value parser runs.
+    let e = parse_str(r#"<a x="1" y="2"/>"#)?;
+    let x = e.attr("x", |s| -> Result<String, use_xml::Error> {
+        let y = e.attr("y", parse::string)?;
+        assert!(e.attr_opt("missing", parse::string)?.is_none());
+        assert_eq!(
+            e.attr("x", parse::string).unwrap_err(),
+            already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        );
+        Ok(format!("{s}{y}"))
+    })?;
+    assert_eq!(x, "12");
+    e.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn error_kind_accessors() {
+    let error = parse_str("<a><b/>x</a>").unwrap_err();
+    let expected = ErrorKind::MixedContent {
+        path: "/a".to_owned(),
+        position: pos(1, 1),
+    };
+    assert_eq!(error.kind(), &expected);
+    assert_eq!(error, expected);
+    assert_eq!(Error::from(expected.clone()), error);
+    assert_eq!(
+        error.to_string(),
+        "element /a at line 1, column 1 contains mixed content"
+    );
+    assert_eq!(format!("{error:?}"), format!("{expected:?}"));
+    assert_eq!(error.into_kind(), expected);
+}
+
+#[test]
+fn child_prefix_mismatch_with_unprefixed_child() {
+    assert_eq!(
+        parse_str("<r xmlns:a=\"urn:a\">\n  <c/>\n  <a:c/></r>").unwrap_err(),
+        ErrorKind::ChildPrefixMismatch {
+            path: "/r".to_owned(),
+            position: pos(3, 3),
+            name: "c".to_owned(),
+            first_prefix: String::new(),
+            second_prefix: "a".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn requesting_child_name_marks_all_children_as_used() -> anyhow::Result<()> {
+    let e = parse_str("<a><b/><b/></a>")?;
+    assert!(matches!(
+        e.child("b").map_err(Error::into_kind),
+        Err(ErrorKind::WrongCount { found: 2, .. })
+    ));
+    e.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn line_endings_in_cdata_are_normalized() -> anyhow::Result<()> {
+    let e = parse_str("<a><![CDATA[x\r\ny\rz]]></a>")?;
+    assert_eq!(e.text(parse::string)?, "x\ny\nz");
     Ok(())
 }

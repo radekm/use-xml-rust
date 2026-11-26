@@ -34,6 +34,11 @@ fn integers() {
     assert_eq!(parse::u64("18446744073709551615"), Ok(u64::MAX));
     assert!(parse::u8("256").is_err());
     assert!(parse::u32("-1").is_err());
+    // Unsigned types accept only `+`, signed types accept both signs.
+    assert_eq!(parse::u32("+7"), Ok(7));
+    assert!(parse::u32("-0").is_err());
+    assert_eq!(parse::i32("-0"), Ok(0));
+    assert_eq!(parse::u8("007"), Ok(7));
     assert!(parse::i32(" 1").is_err());
     assert!(parse::i32("1 ").is_err());
     assert!(parse::i32("").is_err());
@@ -193,4 +198,26 @@ fn map_and_validate() {
     let small = parse::validate(parse::u32, |n| (*n > 10).then(|| "too big".to_owned()));
     assert_eq!(small("10"), Ok(10));
     assert_eq!(small("11"), Err("too big".to_owned()));
+}
+
+#[test]
+fn date_time_offset_must_be_convertible_to_utc() {
+    // The UTC equivalent of these date times is outside of the range of `time`,
+    // `OffsetDateTime::to_offset(UtcOffset::UTC)` would panic on them.
+    for s in ["9999-12-31T23:59:59-00:01", "9999-12-31T23:59:59-23:59"] {
+        assert!(
+            parse::date_time_offset(s).is_err(),
+            "{s:?} should be rejected"
+        );
+    }
+    let latest = parse::date_time_offset("9999-12-31T23:59:59+01:00").unwrap();
+    assert_eq!(
+        latest.to_offset(time::UtcOffset::UTC),
+        datetime!(9999-12-31 22:59:59 UTC)
+    );
+    let earliest = parse::date_time_offset("0000-01-01T00:00:00-01:00").unwrap();
+    assert_eq!(
+        earliest.to_offset(time::UtcOffset::UTC),
+        datetime!(0000-01-01 01:00:00 UTC)
+    );
 }
