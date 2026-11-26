@@ -5,7 +5,7 @@ Czech version: [README.cs.md](README.cs.md).
 A Rust library for extracting data from XML documents, modeled on the F# library
 [UseData.Xml](https://github.com/radekm/UseData.Xml).
 
-**Status:** in design. See [PLAN.md](PLAN.md).
+**Status:** the core is implemented, the API may still change. See [PLAN.md](PLAN.md).
 
 ## Idea
 
@@ -15,6 +15,8 @@ At the end you call `check_all_used`, which fails if some attribute, text, or ch
 was not used, so changes in the input format are not silently ignored.
 
 ```rust
+use use_xml::parse;
+
 let root = use_xml::parse_str(xml)?;
 let people = root
     .children("person")?

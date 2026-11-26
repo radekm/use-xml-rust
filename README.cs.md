@@ -5,7 +5,7 @@ Anglická verze: [README.md](README.md).
 Knihovna v Rustu pro extrakci dat z XML dokumentů, inspirovaná F# knihovnou
 [UseData.Xml](https://github.com/radekm/UseData.Xml).
 
-**Stav:** ve fázi návrhu. Viz [PLAN.cs.md](PLAN.cs.md).
+**Stav:** jádro je hotové, API se ještě může změnit. Viz [PLAN.cs.md](PLAN.cs.md).
 
 ## Myšlenka
 
@@ -15,6 +15,8 @@ Na konci zavoláš `check_all_used`, která selže, pokud nějaký atribut, text
 zůstal nepoužitý. Změny ve formátu vstupu se tak tiše neignorují.
 
 ```rust
+use use_xml::parse;
+
 let root = use_xml::parse_str(xml)?;
 let people = root
     .children("person")?

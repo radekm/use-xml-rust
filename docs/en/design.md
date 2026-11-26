@@ -78,6 +78,11 @@ Any violation is a parse error, not an error discovered later during extraction.
 - Entity and character references are decoded. Only the predefined XML entities
   (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`) and character references are supported.
 - Comments and processing instructions are ignored everywhere.
+- Whitespace means XML whitespace: space, tab, carriage return, and line feed.
+- Line endings in text and CDATA are normalized to `\n`.
+  Attribute values are normalized as required by XML (e.g. line breaks become spaces).
+- Known limitation: some well-formedness constraints which `quick-xml` does not check
+  (e.g. forbidden control characters or `]]>` in text) are not checked either.
 
 ### Document
 
@@ -130,6 +135,7 @@ root.attr("id", parse::u32)?;                  // T, error if missing
 root.attr_opt("note", parse::string)?;         // Option<T>
 root.text(parse::decimal)?;                    // T
 
+root.path();                                   // String, e.g. `/root/items[1]/item[3]`
 root.child("pig")?;                            // &Elem, error unless exactly one
 root.child_opt("cat")?;                        // Option<&Elem>, error if more than one
 root.children("dog")?;                         // &[Elem]
@@ -138,7 +144,8 @@ root.ignore_all();
 root.check_all_used()?;
 ```
 
-A value parser is a function `Fn(&str) -> Result<T, String>`. The library wraps its error
+A value parser is any function `FnOnce(&str) -> Result<T, E>` where `E: Display`
+(so e.g. `str::parse::<u8>` works too). The parsers in the `parse` module return `Result<T, String>`. The library wraps its error
 with context (element name, position, attribute name or "text", input value).
 The `parse` module provides ready-made parsers, ported from the original:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
@@ -158,17 +165,22 @@ Value formats (all strict, no surrounding whitespace):
 
 ## Errors
 
-The library has one error type `Error` (made with `thiserror`). Every error carries
-the path and position of the element it relates to. Planned variants:
+The library has one error type `Error` (made with `thiserror`). Every error related
+to an element carries the path and position of the element. Variants:
 
 - `Xml` – malformed XML (from `quick-xml`), with position.
-- `UnexpectedNode` – e.g. `DOCTYPE`, or text outside the root element.
+- `UnexpectedNode` – e.g. `DOCTYPE`, a second root element, or text outside the root element.
+- `UnknownEntity` – an entity reference which is neither predefined nor a character reference.
 - `MixedContent`
 - `DuplicateAttr` – attributes with the same local name.
-- `ChildPrefixMismatch` – children with the same local name but different prefixes.
-- `MaxDepthExceeded`
-- `Missing` – a required attribute or child is missing.
-- `WrongCount` – `child` / `child_opt` found an unexpected number of children.
+- `ChildPrefixMismatch` – children with the same local name but different prefixes
+  (path of the parent, position of the offending child).
+- `MaxDepthExceeded` – path of the deepest allowed element, position of the offending child.
+- `Missing` – a required attribute or child (`attr`, `child`) is missing.
+- `WrongCount` – `child` or `child_opt` found more than one child.
 - `AlreadyUsed`
 - `InvalidValue` – a value parser failed; contains the attribute name (or text), the input, and the message.
 - `Unused` – reported by `check_all_used`.
+
+`AlreadyUsed`, `Missing`, `InvalidValue`, and `Unused` contain an `Item`:
+`Item::Attr(name)`, `Item::Child(name)`, or `Item::Text`.

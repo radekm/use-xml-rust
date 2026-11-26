@@ -78,6 +78,11 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
 - Entity a znakové reference se dekódují. Podporované jsou pouze předdefinované XML entity
   (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`) a znakové reference.
 - Komentáře a processing instructions se všude ignorují.
+- Bílými znaky se myslí bílé znaky XML: mezera, tabulátor, návrat vozíku a odřádkování.
+- Konce řádků v textu a CDATA se normalizují na `\n`.
+  Hodnoty atributů se normalizují podle XML (např. konce řádků se změní na mezery).
+- Známé omezení: některá pravidla správného utvoření, která nekontroluje `quick-xml`
+  (např. zakázané řídicí znaky nebo `]]>` v textu), nekontrolujeme ani my.
 
 ### Dokument
 
@@ -130,6 +135,7 @@ root.attr("id", parse::u32)?;                  // T, chyba pokud chybí
 root.attr_opt("note", parse::string)?;         // Option<T>
 root.text(parse::decimal)?;                    // T
 
+root.path();                                   // String, např. `/root/items[1]/item[3]`
 root.child("pig")?;                            // &Elem, chyba pokud není právě jedno
 root.child_opt("cat")?;                        // Option<&Elem>, chyba pokud je jich víc
 root.children("dog")?;                         // &[Elem]
@@ -138,7 +144,8 @@ root.ignore_all();
 root.check_all_used()?;
 ```
 
-Parser hodnoty je funkce `Fn(&str) -> Result<T, String>`. Knihovna jeho chybu obalí
+Parser hodnoty je libovolná funkce `FnOnce(&str) -> Result<T, E>`, kde `E: Display`
+(funguje tedy např. i `str::parse::<u8>`). Parsery v modulu `parse` vracejí `Result<T, String>`. Knihovna jeho chybu obalí
 kontextem (jméno elementu, pozice, jméno atributu nebo „text“, vstupní hodnota).
 Modul `parse` nabízí hotové parsery převzaté z originálu:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
@@ -158,17 +165,22 @@ Formáty hodnot (všechny striktní, bez bílých znaků okolo):
 
 ## Chyby
 
-Knihovna má jeden typ chyby `Error` (vytvořený pomocí `thiserror`). Každá chyba nese
-cestu a pozici elementu, ke kterému se vztahuje. Plánované varianty:
+Knihovna má jeden typ chyby `Error` (vytvořený pomocí `thiserror`). Každá chyba
+vztahující se k elementu nese cestu a pozici elementu. Varianty:
 
 - `Xml` – chybně utvořené XML (z `quick-xml`), s pozicí.
-- `UnexpectedNode` – např. `DOCTYPE` nebo text mimo kořenový element.
+- `UnexpectedNode` – např. `DOCTYPE`, druhý kořenový element nebo text mimo kořenový element.
+- `UnknownEntity` – odkaz na entitu, která není předdefinovaná ani znaková reference.
 - `MixedContent`
 - `DuplicateAttr` – atributy se stejným local name.
-- `ChildPrefixMismatch` – děti se stejným local name, ale různými prefixy.
-- `MaxDepthExceeded`
-- `Missing` – chybí povinný atribut nebo dítě.
-- `WrongCount` – `child` / `child_opt` našly neočekávaný počet dětí.
+- `ChildPrefixMismatch` – děti se stejným local name, ale různými prefixy
+  (cesta rodiče, pozice dítěte, které nesedí).
+- `MaxDepthExceeded` – cesta nejhlubšího povoleného elementu, pozice dítěte, které je příliš hluboko.
+- `Missing` – chybí povinný atribut nebo dítě (`attr`, `child`).
+- `WrongCount` – `child` nebo `child_opt` našly více než jedno dítě.
 - `AlreadyUsed`
 - `InvalidValue` – parser hodnoty selhal; obsahuje jméno atributu (nebo text), vstup a zprávu.
 - `Unused` – hlásí `check_all_used`.
+
+`AlreadyUsed`, `Missing`, `InvalidValue` a `Unused` obsahují `Item`:
+`Item::Attr(name)`, `Item::Child(name)` nebo `Item::Text`.
