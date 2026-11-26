@@ -1,4 +1,4 @@
-use use_xml::{Error, Position, parse, parse_bytes, parse_str};
+use use_xml::{Error, ErrorKind, Position, parse, parse_bytes, parse_str};
 
 fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
@@ -35,7 +35,7 @@ fn utf8_bom_is_skipped() -> anyhow::Result<()> {
 fn other_declared_encoding_is_rejected() {
     assert_eq!(
         parse_bytes(b"<?xml version=\"1.0\" encoding=\"windows-1250\"?><a/>").unwrap_err(),
-        Error::Encoding {
+        ErrorKind::Encoding {
             message: "encoding `windows-1250` is not supported".to_owned(),
             position: pos(1, 1)
         }
@@ -51,7 +51,10 @@ fn declared_encoding_is_ignored_for_str() -> anyhow::Result<()> {
 #[test]
 fn utf16_is_rejected() {
     for input in [&b"\xFF\xFE<\0a\0/\0>\0"[..], &b"\xFE\xFF\0<\0a\0/\0>"[..]] {
-        assert!(matches!(parse_bytes(input), Err(Error::Encoding { .. })));
+        assert!(matches!(
+            parse_bytes(input).map_err(Error::into_kind),
+            Err(ErrorKind::Encoding { .. })
+        ));
     }
 }
 
@@ -59,7 +62,7 @@ fn utf16_is_rejected() {
 fn invalid_utf8_is_rejected() {
     assert_eq!(
         parse_bytes(b"<a>\n  x\xFFy</a>").unwrap_err(),
-        Error::Encoding {
+        ErrorKind::Encoding {
             message: "invalid UTF-8".to_owned(),
             position: pos(2, 4)
         }

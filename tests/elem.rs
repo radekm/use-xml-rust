@@ -1,4 +1,4 @@
-use use_xml::{Error, Item, MAX_DEPTH, Position, parse, parse_str};
+use use_xml::{Error, ErrorKind, Item, MAX_DEPTH, Position, parse, parse_str};
 
 fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
@@ -123,7 +123,10 @@ fn prefixed_attributes_use_local_name() -> anyhow::Result<()> {
 fn children_with_same_prefix_are_allowed() -> anyhow::Result<()> {
     let e = parse_str(r#"<r xmlns:a="urn:a"><a:x/><a:x/><x/></r>"#);
     // `a:x` and `x` differ in prefix.
-    assert!(matches!(e, Err(Error::ChildPrefixMismatch { .. })));
+    assert!(matches!(
+        e.map_err(Error::into_kind),
+        Err(ErrorKind::ChildPrefixMismatch { .. })
+    ));
     let e = parse_str(r#"<r xmlns:a="urn:a"><a:x/><a:x/></r>"#)?;
     assert_eq!(e.children("x")?.len(), 2);
     Ok(())
@@ -169,8 +172,8 @@ fn cdata_and_text_are_concatenated() -> anyhow::Result<()> {
 fn empty_cdata_is_significant() -> anyhow::Result<()> {
     let e = parse_str("<a><![CDATA[]]></a>")?;
     assert_eq!(
-        e.check_all_used(),
-        Err(Error::Unused {
+        e.check_all_used().map_err(Error::into_kind),
+        Err(ErrorKind::Unused {
             path: "/a".to_owned(),
             position: pos(1, 1),
             item: Item::Text
@@ -217,7 +220,7 @@ fn mixed_content_text_before_child() {
     let input = "<country>\n  Czech Republic\n  <president>Vaclav Havel</president>\n</country>";
     assert_eq!(
         parse_str(input).unwrap_err(),
-        Error::MixedContent {
+        ErrorKind::MixedContent {
             path: "/country".to_owned(),
             position: pos(1, 1)
         }
@@ -228,7 +231,7 @@ fn mixed_content_text_before_child() {
 fn mixed_content_text_after_child() {
     assert_eq!(
         parse_str("<r><a><b/>text</a></r>").unwrap_err(),
-        Error::MixedContent {
+        ErrorKind::MixedContent {
             path: "/r/a[1]".to_owned(),
             position: pos(1, 4)
         }
@@ -238,8 +241,8 @@ fn mixed_content_text_after_child() {
 #[test]
 fn mixed_content_cdata_after_child() {
     assert!(matches!(
-        parse_str("<a><b/><![CDATA[]]></a>"),
-        Err(Error::MixedContent { .. })
+        parse_str("<a><b/><![CDATA[]]></a>").map_err(Error::into_kind),
+        Err(ErrorKind::MixedContent { .. })
     ));
 }
 
@@ -251,7 +254,7 @@ fn duplicate_attribute_with_different_prefixes() {
 <e a:x="1" b:x="2"/></r>"#
         )
         .unwrap_err(),
-        Error::DuplicateAttr {
+        ErrorKind::DuplicateAttr {
             path: "/r/e[1]".to_owned(),
             position: pos(2, 1),
             name: "x".to_owned()
@@ -263,7 +266,7 @@ fn duplicate_attribute_with_different_prefixes() {
 fn duplicate_attribute_with_same_name() {
     assert_eq!(
         parse_str(r#"<e x="1" x="2"/>"#).unwrap_err(),
-        Error::DuplicateAttr {
+        ErrorKind::DuplicateAttr {
             path: "/e".to_owned(),
             position: pos(1, 1),
             name: "x".to_owned()
@@ -275,7 +278,7 @@ fn duplicate_attribute_with_same_name() {
 fn child_prefix_mismatch() {
     assert_eq!(
         parse_str(r#"<r xmlns:a="urn:a" xmlns:b="urn:b"><a:c/><b:c/></r>"#).unwrap_err(),
-        Error::ChildPrefixMismatch {
+        ErrorKind::ChildPrefixMismatch {
             path: "/r".to_owned(),
             position: pos(1, 42),
             name: "c".to_owned(),
@@ -289,7 +292,7 @@ fn child_prefix_mismatch() {
 fn unknown_entity() {
     assert_eq!(
         parse_str("<a>x &nbsp;</a>").unwrap_err(),
-        Error::UnknownEntity {
+        ErrorKind::UnknownEntity {
             name: "nbsp".to_owned(),
             path: "/a".to_owned(),
             position: pos(1, 6)
@@ -301,7 +304,7 @@ fn unknown_entity() {
 fn doctype_is_not_allowed() {
     assert_eq!(
         parse_str("<?xml version=\"1.0\"?>\n<!DOCTYPE a>\n<a/>").unwrap_err(),
-        Error::UnexpectedNode {
+        ErrorKind::UnexpectedNode {
             node: "DOCTYPE".to_owned(),
             position: pos(2, 1)
         }
@@ -311,8 +314,8 @@ fn doctype_is_not_allowed() {
 #[test]
 fn text_before_root_is_not_allowed() {
     assert!(matches!(
-        parse_str("x<a/>"),
-        Err(Error::UnexpectedNode {
+        parse_str("x<a/>").map_err(Error::into_kind),
+        Err(ErrorKind::UnexpectedNode {
             position: Position { line: 1, column: 1 },
             ..
         })
@@ -322,8 +325,8 @@ fn text_before_root_is_not_allowed() {
 #[test]
 fn text_after_root_is_not_allowed() {
     assert!(matches!(
-        parse_str("<a/>\n x"),
-        Err(Error::UnexpectedNode {
+        parse_str("<a/>\n x").map_err(Error::into_kind),
+        Err(ErrorKind::UnexpectedNode {
             position: Position { line: 2, column: 2 },
             ..
         })
@@ -334,7 +337,7 @@ fn text_after_root_is_not_allowed() {
 fn second_root_is_not_allowed() {
     assert_eq!(
         parse_str("<a/> <b/>").unwrap_err(),
-        Error::UnexpectedNode {
+        ErrorKind::UnexpectedNode {
             node: "second root element".to_owned(),
             position: pos(1, 6)
         }
@@ -344,8 +347,8 @@ fn second_root_is_not_allowed() {
 #[test]
 fn xml_declaration_must_be_first() {
     assert!(matches!(
-        parse_str(" <?xml version=\"1.0\"?><a/>"),
-        Err(Error::UnexpectedNode { .. }) | Err(Error::Xml { .. })
+        parse_str(" <?xml version=\"1.0\"?><a/>").map_err(Error::into_kind),
+        Err(ErrorKind::UnexpectedNode { .. }) | Err(ErrorKind::Xml { .. })
     ));
 }
 
@@ -353,8 +356,8 @@ fn xml_declaration_must_be_first() {
 fn max_depth() -> anyhow::Result<()> {
     let nested = |depth: usize| "<a>".repeat(depth) + &"</a>".repeat(depth);
     parse_str(&nested(MAX_DEPTH))?;
-    match parse_str(&nested(MAX_DEPTH + 1)).unwrap_err() {
-        Error::MaxDepthExceeded {
+    match parse_str(&nested(MAX_DEPTH + 1)).unwrap_err().into_kind() {
+        ErrorKind::MaxDepthExceeded {
             path,
             position,
             max_depth,
@@ -373,25 +376,28 @@ fn very_deep_document_does_not_overflow_stack() {
     let depth = 1_000_000;
     let input = "<a>".repeat(depth) + &"</a>".repeat(depth);
     assert!(matches!(
-        parse_str(&input),
-        Err(Error::MaxDepthExceeded { .. })
+        parse_str(&input).map_err(Error::into_kind),
+        Err(ErrorKind::MaxDepthExceeded { .. })
     ));
 }
 
 #[test]
 fn missing_root_element() {
     assert!(matches!(
-        parse_str(r#"<?xml version="1.0" encoding="utf-8"?>"#),
-        Err(Error::Xml { .. })
+        parse_str(r#"<?xml version="1.0" encoding="utf-8"?>"#).map_err(Error::into_kind),
+        Err(ErrorKind::Xml { .. })
     ));
-    assert!(matches!(parse_str(""), Err(Error::Xml { .. })));
+    assert!(matches!(
+        parse_str("").map_err(Error::into_kind),
+        Err(ErrorKind::Xml { .. })
+    ));
 }
 
 #[test]
 fn different_closing_tag() {
     assert!(matches!(
-        parse_str("<root>\n  <a></b>\n</root>"),
-        Err(Error::Xml {
+        parse_str("<root>\n  <a></b>\n</root>").map_err(Error::into_kind),
+        Err(ErrorKind::Xml {
             position: Position { line: 2, .. },
             ..
         })
@@ -401,8 +407,8 @@ fn different_closing_tag() {
 #[test]
 fn missing_closing_tag() {
     assert!(matches!(
-        parse_str("<root><person>"),
-        Err(Error::Xml { .. })
+        parse_str("<root><person>").map_err(Error::into_kind),
+        Err(ErrorKind::Xml { .. })
     ));
 }
 
@@ -417,7 +423,7 @@ fn multiple_children_when_single_child_is_expected() -> anyhow::Result<()> {
     let e = parse_str(TWO_NAMES)?;
     assert_eq!(
         e.child("name").unwrap_err(),
-        Error::WrongCount {
+        ErrorKind::WrongCount {
             path: "/person".to_owned(),
             position: pos(1, 1),
             name: "name".to_owned(),
@@ -432,8 +438,8 @@ fn multiple_children_when_single_child_is_expected() -> anyhow::Result<()> {
 fn multiple_children_when_at_most_one_child_is_expected() -> anyhow::Result<()> {
     let e = parse_str(TWO_NAMES)?;
     assert!(matches!(
-        e.child_opt("name"),
-        Err(Error::WrongCount {
+        e.child_opt("name").map_err(Error::into_kind),
+        Err(ErrorKind::WrongCount {
             expected: "at most one",
             found: 2,
             ..
@@ -447,7 +453,7 @@ fn no_child_when_one_child_is_expected() -> anyhow::Result<()> {
     let e = parse_str("<dog></dog>")?;
     assert_eq!(
         e.child("name").unwrap_err(),
-        Error::Missing {
+        ErrorKind::Missing {
             path: "/dog".to_owned(),
             position: pos(1, 1),
             item: Item::Child("name".to_owned())
@@ -461,7 +467,7 @@ fn no_attribute_when_one_attribute_is_expected() -> anyhow::Result<()> {
     let e = parse_str("<city></city>")?;
     assert_eq!(
         e.attr("name", parse::string).unwrap_err(),
-        Error::Missing {
+        ErrorKind::Missing {
             path: "/city".to_owned(),
             position: pos(1, 1),
             item: Item::Attr("name".to_owned())
@@ -476,7 +482,7 @@ fn invalid_value() -> anyhow::Result<()> {
     let n = e.child("n")?;
     assert_eq!(
         n.attr("v", parse::u32).unwrap_err(),
-        Error::InvalidValue {
+        ErrorKind::InvalidValue {
             path: "/r/n[1]".to_owned(),
             position: pos(2, 3),
             item: Item::Attr("v".to_owned()),
@@ -485,8 +491,8 @@ fn invalid_value() -> anyhow::Result<()> {
         }
     );
     assert!(matches!(
-        n.text(parse::u32),
-        Err(Error::InvalidValue {
+        n.text(parse::u32).map_err(Error::into_kind),
+        Err(ErrorKind::InvalidValue {
             item: Item::Text,
             ..
         })
@@ -505,8 +511,8 @@ fn custom_parser_with_any_display_error() -> anyhow::Result<()> {
 // Usage tracking.
 // ---------------------------------------------------------------------------
 
-fn already_used(path: &str, position: Position, item: Item) -> Error {
-    Error::AlreadyUsed {
+fn already_used(path: &str, position: Position, item: Item) -> ErrorKind {
+    ErrorKind::AlreadyUsed {
         path: path.to_owned(),
         position,
         item,
@@ -529,8 +535,8 @@ fn missing_attribute_can_be_requested_once() -> anyhow::Result<()> {
     let e = parse_str("<a/>")?;
     assert_eq!(e.attr_opt("x", parse::string)?, None);
     assert!(matches!(
-        e.attr_opt("x", parse::string),
-        Err(Error::AlreadyUsed { .. })
+        e.attr_opt("x", parse::string).map_err(Error::into_kind),
+        Err(ErrorKind::AlreadyUsed { .. })
     ));
     Ok(())
 }
@@ -556,7 +562,10 @@ fn children_can_be_used_once() -> anyhow::Result<()> {
     );
     // Missing children are tracked too.
     assert_eq!(e.child_opt("c")?.map(|c| c.name()), None);
-    assert!(matches!(e.children("c"), Err(Error::AlreadyUsed { .. })));
+    assert!(matches!(
+        e.children("c").map_err(Error::into_kind),
+        Err(ErrorKind::AlreadyUsed { .. })
+    ));
     Ok(())
 }
 
@@ -569,14 +578,17 @@ fn ignore_all_marks_everything_as_used() -> anyhow::Result<()> {
     e.ignore_all();
     e.check_all_used()?;
     assert!(matches!(
-        e.attr("x", parse::string),
-        Err(Error::AlreadyUsed { .. })
+        e.attr("x", parse::string).map_err(Error::into_kind),
+        Err(ErrorKind::AlreadyUsed { .. })
     ));
     assert!(matches!(
-        e.text(parse::string),
-        Err(Error::AlreadyUsed { .. })
+        e.text(parse::string).map_err(Error::into_kind),
+        Err(ErrorKind::AlreadyUsed { .. })
     ));
-    assert!(matches!(e.children("b"), Err(Error::AlreadyUsed { .. })));
+    assert!(matches!(
+        e.children("b").map_err(Error::into_kind),
+        Err(ErrorKind::AlreadyUsed { .. })
+    ));
     Ok(())
 }
 
@@ -620,7 +632,7 @@ fn unused_element() -> anyhow::Result<()> {
     assert_eq!(street, "Baker Street");
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        Error::Unused {
+        ErrorKind::Unused {
             path: "/company/address[1]".to_owned(),
             position: pos(2, 5),
             item: Item::Child("city".to_owned())
@@ -639,7 +651,7 @@ fn unused_attribute() -> anyhow::Result<()> {
     assert_eq!(e.child("address")?.attr("city", parse::string)?, "London");
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        Error::Unused {
+        ErrorKind::Unused {
             path: "/company/address[1]".to_owned(),
             position: pos(2, 5),
             item: Item::Attr("street".to_owned())
@@ -659,7 +671,7 @@ fn unused_text() -> anyhow::Result<()> {
     );
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        Error::Unused {
+        ErrorKind::Unused {
             path: "/company/address[1]/city[1]".to_owned(),
             position: pos(4, 9),
             item: Item::Text
@@ -672,14 +684,14 @@ fn unused_text() -> anyhow::Result<()> {
 fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     let e = parse_str(r#"<a z="1" y="2"><![CDATA[t]]></a>"#)?;
     assert!(matches!(
-        e.check_all_used(),
-        Err(Error::Unused { item: Item::Attr(ref n), .. }) if n == "y"
+        e.check_all_used().map_err(Error::into_kind),
+        Err(ErrorKind::Unused { item: Item::Attr(ref n), .. }) if n == "y"
     ));
     e.attr("y", parse::string)?;
     e.attr("z", parse::string)?;
     assert!(matches!(
-        e.check_all_used(),
-        Err(Error::Unused {
+        e.check_all_used().map_err(Error::into_kind),
+        Err(ErrorKind::Unused {
             item: Item::Text,
             ..
         })
@@ -689,8 +701,8 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
 
     let e = parse_str("<a><c/><b/></a>")?;
     assert!(matches!(
-        e.check_all_used(),
-        Err(Error::Unused { item: Item::Child(ref n), .. }) if n == "b"
+        e.check_all_used().map_err(Error::into_kind),
+        Err(ErrorKind::Unused { item: Item::Child(ref n), .. }) if n == "b"
     ));
     Ok(())
 }
@@ -701,7 +713,7 @@ fn check_reports_first_unused_descendant_in_document_order() -> anyhow::Result<(
     e.children("i")?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        Error::Unused {
+        ErrorKind::Unused {
             path: "/r/i[2]".to_owned(),
             position: pos(1, 8),
             item: Item::Attr("x".to_owned())

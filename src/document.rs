@@ -1,7 +1,7 @@
 //! Parsing of an XML document into a tree of [`Elem`].
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use quick_xml::XmlVersion;
@@ -11,7 +11,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
 use crate::elem::{Elem, ElemPath};
-use crate::error::{Error, Position};
+use crate::error::{Error, ErrorKind, Position};
 
 /// Maximum nesting depth of elements. The root element has depth 1.
 pub const MAX_DEPTH: usize = 256;
@@ -87,17 +87,16 @@ struct Builder {
 impl Builder {
     fn finish(self) -> Elem {
         let text = if self.children.is_empty() {
-            self.text
+            self.text.into_boxed_str()
         } else {
-            String::new()
+            Box::default()
         };
         Elem {
             path: self.path,
             position: self.position,
             attrs: self.attrs,
-            missing_attrs_used: RefCell::new(BTreeSet::new()),
             children: self.children,
-            missing_children_used: RefCell::new(BTreeSet::new()),
+            missing_used: RefCell::new(None),
             text,
             text_significant: self.text_significant,
             text_used: Cell::new(false),
@@ -106,10 +105,11 @@ impl Builder {
     }
 
     fn mixed_content(&self) -> Error {
-        Error::MixedContent {
+        ErrorKind::MixedContent {
             path: self.path.to_string(),
             position: self.position,
         }
+        .into()
     }
 
     /// Adds text. `significant` is true for CDATA and text with a non-whitespace character.
@@ -165,7 +165,7 @@ pub fn parse_str(input: &str) -> Result<Elem, Error> {
 /// A leading UTF-8 byte order mark is skipped. Other encodings are not supported:
 /// UTF-16 or UTF-32 (detected by a byte order mark or by the encoded `<` at the start),
 /// an encoding other than UTF-8 in the XML declaration,
-/// or invalid UTF-8 result in [`Error::Encoding`]. Otherwise it behaves like [`parse_str`].
+/// or invalid UTF-8 result in [`ErrorKind::Encoding`]. Otherwise it behaves like [`parse_str`].
 ///
 /// ```
 /// let root = use_xml::parse_bytes(b"<?xml version='1.0' encoding='UTF-8'?><a x='1'/>")?;
@@ -179,19 +179,21 @@ pub fn parse_str(input: &str) -> Result<Elem, Error> {
 /// or it violates a structural rule.
 pub fn parse_bytes(input: &[u8]) -> Result<Elem, Error> {
     if let Some(encoding) = detect_unsupported_encoding(input) {
-        return Err(Error::Encoding {
+        return Err(ErrorKind::Encoding {
             message: format!("{encoding} is not supported"),
             position: Position { line: 1, column: 1 },
-        });
+        }
+        .into());
     }
     // The UTF-8 byte order mark is valid UTF-8, it is skipped later by `quick-xml`.
-    let input = std::str::from_utf8(input).map_err(|e| {
+    let input = std::str::from_utf8(input).map_err(|e| -> Error {
         // The prefix up to `valid_up_to` is valid UTF-8.
         let valid = std::str::from_utf8(&input[..e.valid_up_to()]).unwrap_or_default();
-        Error::Encoding {
+        ErrorKind::Encoding {
             message: "invalid UTF-8".to_owned(),
             position: PositionTracker::new(valid).position_at(valid.len() as u64),
         }
+        .into()
     })?;
     parse(input, true)
 }
@@ -236,10 +238,11 @@ fn parse(input: &str, check_encoding: bool) -> Result<Elem, Error> {
 
 impl<'a> Parser<'a> {
     fn xml_error(&mut self, message: String, offset: u64) -> Error {
-        Error::Xml {
+        ErrorKind::Xml {
             message,
             position: self.tracker.position_at(offset),
         }
+        .into()
     }
 
     /// Converts an error in the attribute list of the tag starting at `tag_offset`.
@@ -270,10 +273,11 @@ impl<'a> Parser<'a> {
     }
 
     fn unexpected(&mut self, node: &str, offset: u64) -> Error {
-        Error::UnexpectedNode {
+        ErrorKind::UnexpectedNode {
             node: node.to_owned(),
             position: self.tracker.position_at(offset),
         }
+        .into()
     }
 
     fn run(&mut self) -> Result<Elem, Error> {
@@ -332,11 +336,12 @@ impl<'a> Parser<'a> {
                         Ok(None) => match resolve_predefined_entity(&reference) {
                             Some(s) => s,
                             None => {
-                                return Err(Error::UnknownEntity {
+                                return Err(ErrorKind::UnknownEntity {
                                     name: reference.to_string(),
                                     path: builder.path.to_string(),
                                     position: self.tracker.position_at(offset),
-                                });
+                                }
+                                .into());
                             }
                         },
                         Err(e) => return Err(self.xml_error(e.to_string(), offset)),
@@ -352,10 +357,11 @@ impl<'a> Parser<'a> {
                             None => {}
                             Some(Ok(encoding)) if encoding.eq_ignore_ascii_case("utf-8") => {}
                             Some(Ok(encoding)) => {
-                                return Err(Error::Encoding {
+                                return Err(ErrorKind::Encoding {
                                     message: format!("encoding `{encoding}` is not supported"),
                                     position: self.tracker.position_at(offset),
-                                });
+                                }
+                                .into());
                             }
                             Some(Err(e)) => return Err(self.xml_error(e.to_string(), offset)),
                         }
@@ -401,20 +407,22 @@ impl<'a> Parser<'a> {
         let (parent_path, index) = match self.stack.last_mut() {
             None => {
                 if self.root.is_some() {
-                    return Err(Error::UnexpectedNode {
+                    return Err(ErrorKind::UnexpectedNode {
                         node: "second root element".to_owned(),
                         position,
-                    });
+                    }
+                    .into());
                 }
                 (None, 0)
             }
             Some(parent) => {
                 if depth >= MAX_DEPTH {
-                    return Err(Error::MaxDepthExceeded {
+                    return Err(ErrorKind::MaxDepthExceeded {
                         path: parent.path.to_string(),
                         position,
                         max_depth: MAX_DEPTH,
-                    });
+                    }
+                    .into());
                 }
                 if parent.text_significant {
                     return Err(parent.mixed_content());
@@ -428,13 +436,14 @@ impl<'a> Parser<'a> {
                     Some((_, siblings)) => {
                         let first_prefix = siblings.first().map_or("", |e| e.path.prefix.as_str());
                         if first_prefix != prefix {
-                            return Err(Error::ChildPrefixMismatch {
+                            return Err(ErrorKind::ChildPrefixMismatch {
                                 path: parent.path.to_string(),
                                 position,
                                 name: local_name.to_owned(),
                                 first_prefix: first_prefix.to_owned(),
                                 second_prefix: prefix.to_owned(),
-                            });
+                            }
+                            .into());
                         }
                         siblings.len()
                     }
@@ -467,18 +476,22 @@ impl<'a> Parser<'a> {
             }
             let value = attr
                 .normalized_value(XmlVersion::Implicit1_0)
-                .map_err(|e| match e {
-                    quick_xml::Error::Escape(EscapeError::UnrecognizedEntity(_, name)) => {
-                        Error::UnknownEntity {
-                            name,
-                            path: path.to_string(),
+                .map_err(|e| -> Error {
+                    match e {
+                        quick_xml::Error::Escape(EscapeError::UnrecognizedEntity(_, name)) => {
+                            ErrorKind::UnknownEntity {
+                                name,
+                                path: path.to_string(),
+                                position,
+                            }
+                            .into()
+                        }
+                        e => ErrorKind::Xml {
+                            message: e.to_string(),
                             position,
                         }
+                        .into(),
                     }
-                    e => Error::Xml {
-                        message: e.to_string(),
-                        position,
-                    },
                 })?;
             if attrs
                 .insert(
@@ -487,11 +500,12 @@ impl<'a> Parser<'a> {
                 )
                 .is_some()
             {
-                return Err(Error::DuplicateAttr {
+                return Err(ErrorKind::DuplicateAttr {
                     path: path.to_string(),
                     position,
                     name: attr_local.to_owned(),
-                });
+                }
+                .into());
             }
         }
 

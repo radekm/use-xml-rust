@@ -20,13 +20,12 @@ pub struct Elem {
     position: Position,                       // Line and column of the start tag.
     // Key is the local name; the flag says whether the attribute was used.
     attrs: BTreeMap<String, (Cell<bool>, String)>,
-    // Requested names of attributes which do not exist.
-    missing_attrs_used: RefCell<BTreeSet<String>>,
     // Key is the local name; document order within a name.
     children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
-    // Requested names of children which do not exist.
-    missing_children_used: RefCell<BTreeSet<String>>,
-    text: String,
+    // Requested attributes and children which do not exist.
+    // Allocated only on the first such request because it is rarely needed.
+    missing_used: RefCell<Option<Box<BTreeSet<Item>>>>,
+    text: Box<str>,
     // The text contains a non-whitespace character or a CDATA section.
     text_significant: bool,
     text_used: Cell<bool>,
@@ -48,7 +47,7 @@ among siblings with the same local name, e.g. `/root/items[1]/item[3]`.
 
 The "used" flag of an existing attribute or child name is stored next to its value,
 so using it does not allocate. Only requests for names which do not exist
-are recorded in the `missing_*_used` sets (so that a second request fails too).
+are recorded in the `missing_used` set (so that a second request fails too).
 
 All API methods take `&self`. Usage is tracked with interior mutability (`Cell`, `RefCell`),
 so a user can hold references to several children and still read the parent's attributes.
@@ -185,8 +184,10 @@ Value formats (all strict, no surrounding whitespace):
 
 ## Errors
 
-The library has one error type `Error` (made with `thiserror`). Every error related
-to an element carries the path and position of the element. Variants:
+The library has one error type `Error` (made with `thiserror`). It is a box around `ErrorKind`,
+so `Result<T, Error>` stays small; the details are available via `Error::kind` and `Error::into_kind`,
+and `Error` can be compared with `ErrorKind` directly. Every error related
+to an element carries the path and position of the element. Variants of `ErrorKind`:
 
 - `Xml` – malformed XML (from `quick-xml`), with position.
 - `Encoding` – invalid UTF-8 or an unsupported encoding (only from `parse_bytes`).

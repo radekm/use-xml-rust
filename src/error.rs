@@ -38,13 +38,58 @@ impl fmt::Display for Item {
     }
 }
 
-/// Every error which can be returned by the library.
+/// The error type of the library.
+///
+/// The details are in [`ErrorKind`]. The error is boxed, so `Result<T, Error>` stays small.
+///
+/// ```
+/// use use_xml::ErrorKind;
+///
+/// let error = use_xml::parse_str("<a><b/>text</a>").unwrap_err();
+/// assert!(matches!(error.kind(), ErrorKind::MixedContent { .. }));
+/// ```
+#[derive(Clone, PartialEq, Eq, thiserror::Error)]
+#[error(transparent)]
+pub struct Error(Box<ErrorKind>);
+
+impl Error {
+    /// Returns the details of the error.
+    pub fn kind(&self) -> &ErrorKind {
+        &self.0
+    }
+
+    /// Converts the error into its details.
+    pub fn into_kind(self) -> ErrorKind {
+        *self.0
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self(Box::new(kind))
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Show the details directly, without the wrapper.
+        self.0.fmt(f)
+    }
+}
+
+impl PartialEq<ErrorKind> for Error {
+    fn eq(&self, other: &ErrorKind) -> bool {
+        *self.0 == *other
+    }
+}
+
+/// Details of an [`Error`].
 ///
 /// Errors related to an element contain the path of the element
 /// (e.g. `/root/items[1]/item[3]`) and a position in the source document.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
-pub enum Error {
+pub enum ErrorKind {
     /// The document is not well-formed XML.
     #[error("malformed XML at {position}: {message}")]
     Xml {

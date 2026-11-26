@@ -20,13 +20,12 @@ pub struct Elem {
     position: Position,                       // Řádek a sloupec počátečního tagu.
     // Klíčem je local name; příznak říká, zda byl atribut použit.
     attrs: BTreeMap<String, (Cell<bool>, String)>,
-    // Vyžádaná jména atributů, které neexistují.
-    missing_attrs_used: RefCell<BTreeSet<String>>,
     // Klíčem je local name; v rámci jména pořadí z dokumentu.
     children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
-    // Vyžádaná jména dětí, které neexistují.
-    missing_children_used: RefCell<BTreeSet<String>>,
-    text: String,
+    // Vyžádané atributy a děti, které neexistují.
+    // Alokuje se až při prvním takovém požadavku, protože je potřeba jen zřídka.
+    missing_used: RefCell<Option<Box<BTreeSet<Item>>>>,
+    text: Box<str>,
     // Text obsahuje nebílý znak nebo CDATA sekci.
     text_significant: bool,
     text_used: Cell<bool>,
@@ -47,7 +46,7 @@ Cesta se formátuje jako XPath: kořen bez indexu, ostatní elementy s indexem o
 mezi sourozenci se stejným local name, např. `/root/items[1]/item[3]`.
 
 Příznak použití existujícího atributu nebo jména dítěte je uložený vedle hodnoty,
-takže jeho použití nealokuje. Do množin `missing_*_used` se zapisují jen požadavky
+takže jeho použití nealokuje. Do množiny `missing_used` se zapisují jen požadavky
 na jména, která neexistují (aby i druhý požadavek skončil chybou).
 
 Všechny metody API berou `&self`. Použití se sleduje vnitřní mutabilitou (`Cell`, `RefCell`),
@@ -185,8 +184,10 @@ Formáty hodnot (všechny striktní, bez bílých znaků okolo):
 
 ## Chyby
 
-Knihovna má jeden typ chyby `Error` (vytvořený pomocí `thiserror`). Každá chyba
-vztahující se k elementu nese cestu a pozici elementu. Varianty:
+Knihovna má jeden typ chyby `Error` (vytvořený pomocí `thiserror`). Je to box kolem `ErrorKind`,
+takže `Result<T, Error>` zůstává malý; podrobnosti jsou dostupné přes `Error::kind` a `Error::into_kind`
+a `Error` lze přímo porovnávat s `ErrorKind`. Každá chyba
+vztahující se k elementu nese cestu a pozici elementu. Varianty `ErrorKind`:
 
 - `Xml` – chybně utvořené XML (z `quick-xml`), s pozicí.
 - `Encoding` – neplatné UTF-8 nebo nepodporované kódování (jen z `parse_bytes`).

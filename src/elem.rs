@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use crate::error::{Error, Item, Position};
+use crate::error::{Error, ErrorKind, Item, Position};
 
 /// Path of an element, shared between the element and its descendants.
 #[derive(Debug)]
@@ -49,13 +49,16 @@ pub struct Elem {
     pub(crate) position: Position,
     /// Local name -> (used, value).
     pub(crate) attrs: BTreeMap<String, (Cell<bool>, String)>,
-    /// Requested names of attributes which do not exist.
-    pub(crate) missing_attrs_used: RefCell<BTreeSet<String>>,
     /// Local name -> (used, children in document order).
     pub(crate) children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
-    /// Requested names of children which do not exist.
-    pub(crate) missing_children_used: RefCell<BTreeSet<String>>,
-    pub(crate) text: String,
+    /// Requested attributes and children which do not exist.
+    /// Allocated only on the first such request because it is rarely needed.
+    #[expect(
+        clippy::box_collection,
+        reason = "the set is rarely needed, `Box` keeps `Elem` smaller than an empty `BTreeSet`"
+    )]
+    pub(crate) missing_used: RefCell<Option<Box<BTreeSet<Item>>>>,
+    pub(crate) text: Box<str>,
     /// The text contains a non-whitespace character or a CDATA section.
     pub(crate) text_significant: bool,
     pub(crate) text_used: Cell<bool>,
@@ -84,11 +87,12 @@ impl Elem {
     }
 
     fn error_already_used(&self, item: Item) -> Error {
-        Error::AlreadyUsed {
+        ErrorKind::AlreadyUsed {
             path: self.path(),
             position: self.position,
             item,
         }
+        .into()
     }
 
     /// Looks up `name` in `map` and marks it as used.
@@ -97,9 +101,8 @@ impl Elem {
     fn use_entry<'s, V>(
         &self,
         map: &'s BTreeMap<String, (Cell<bool>, V)>,
-        missing_used: &RefCell<BTreeSet<String>>,
         name: &str,
-        item: impl FnOnce() -> Item,
+        item: impl Fn() -> Item,
     ) -> Result<Option<&'s V>, Error> {
         let already_used = self.all_used.get()
             || match map.get(name) {
@@ -109,7 +112,11 @@ impl Elem {
                     }
                     true
                 }
-                None => !missing_used.borrow_mut().insert(name.to_owned()),
+                None => {
+                    // The borrow ends before any user code (e.g. a value parser) runs.
+                    let mut missing_used = self.missing_used.borrow_mut();
+                    !missing_used.get_or_insert_default().insert(item())
+                }
             };
         if already_used {
             Err(self.error_already_used(item()))
@@ -124,12 +131,15 @@ impl Elem {
         value: &str,
         parser: impl FnOnce(&str) -> Result<T, E>,
     ) -> Result<T, Error> {
-        parser(value).map_err(|e| Error::InvalidValue {
-            path: self.path(),
-            position: self.position,
-            item: item(),
-            value: value.to_owned(),
-            message: e.to_string(),
+        parser(value).map_err(|e| {
+            ErrorKind::InvalidValue {
+                path: self.path(),
+                position: self.position,
+                item: item(),
+                value: value.to_owned(),
+                message: e.to_string(),
+            }
+            .into()
         })
     }
 
@@ -139,15 +149,15 @@ impl Elem {
     ///
     /// # Errors
     ///
-    /// - [`Error::AlreadyUsed`] if the attribute was already requested.
-    /// - [`Error::InvalidValue`] if `parser` fails.
+    /// - [`ErrorKind::AlreadyUsed`] if the attribute was already requested.
+    /// - [`ErrorKind::InvalidValue`] if `parser` fails.
     pub fn attr_opt<T, E: fmt::Display>(
         &self,
         name: &str,
         parser: impl FnOnce(&str) -> Result<T, E>,
     ) -> Result<Option<T>, Error> {
         let item = || Item::Attr(name.to_owned());
-        match self.use_entry(&self.attrs, &self.missing_attrs_used, name, item)? {
+        match self.use_entry(&self.attrs, name, item)? {
             None => Ok(None),
             Some(value) => self.run_parser(item, value, parser).map(Some),
         }
@@ -165,18 +175,21 @@ impl Elem {
     ///
     /// # Errors
     ///
-    /// - [`Error::Missing`] if the attribute is missing.
-    /// - [`Error::AlreadyUsed`] if the attribute was already requested.
-    /// - [`Error::InvalidValue`] if `parser` fails.
+    /// - [`ErrorKind::Missing`] if the attribute is missing.
+    /// - [`ErrorKind::AlreadyUsed`] if the attribute was already requested.
+    /// - [`ErrorKind::InvalidValue`] if `parser` fails.
     pub fn attr<T, E: fmt::Display>(
         &self,
         name: &str,
         parser: impl FnOnce(&str) -> Result<T, E>,
     ) -> Result<T, Error> {
-        self.attr_opt(name, parser)?.ok_or_else(|| Error::Missing {
-            path: self.path(),
-            position: self.position,
-            item: Item::Attr(name.to_owned()),
+        self.attr_opt(name, parser)?.ok_or_else(|| {
+            ErrorKind::Missing {
+                path: self.path(),
+                position: self.position,
+                item: Item::Attr(name.to_owned()),
+            }
+            .into()
         })
     }
 
@@ -186,8 +199,8 @@ impl Elem {
     ///
     /// # Errors
     ///
-    /// - [`Error::AlreadyUsed`] if the text was already requested.
-    /// - [`Error::InvalidValue`] if `parser` fails.
+    /// - [`ErrorKind::AlreadyUsed`] if the text was already requested.
+    /// - [`ErrorKind::InvalidValue`] if `parser` fails.
     pub fn text<T, E: fmt::Display>(
         &self,
         parser: impl FnOnce(&str) -> Result<T, E>,
@@ -204,10 +217,10 @@ impl Elem {
     ///
     /// # Errors
     ///
-    /// - [`Error::AlreadyUsed`] if children with this name were already requested.
+    /// - [`ErrorKind::AlreadyUsed`] if children with this name were already requested.
     pub fn children(&self, name: &str) -> Result<&[Elem], Error> {
         let item = || Item::Child(name.to_owned());
-        let children = self.use_entry(&self.children, &self.missing_children_used, name, item)?;
+        let children = self.use_entry(&self.children, name, item)?;
         Ok(children.map_or(&[], Vec::as_slice))
     }
 
@@ -215,19 +228,20 @@ impl Elem {
     ///
     /// # Errors
     ///
-    /// - [`Error::WrongCount`] if there are multiple such children.
-    /// - [`Error::AlreadyUsed`] if children with this name were already requested.
+    /// - [`ErrorKind::WrongCount`] if there are multiple such children.
+    /// - [`ErrorKind::AlreadyUsed`] if children with this name were already requested.
     pub fn child_opt(&self, name: &str) -> Result<Option<&Elem>, Error> {
         match self.children(name)? {
             [] => Ok(None),
             [child] => Ok(Some(child)),
-            children => Err(Error::WrongCount {
+            children => Err(ErrorKind::WrongCount {
                 path: self.path(),
                 position: self.position,
                 name: name.to_owned(),
                 expected: "at most one",
                 found: children.len(),
-            }),
+            }
+            .into()),
         }
     }
 
@@ -243,30 +257,32 @@ impl Elem {
     ///
     /// # Errors
     ///
-    /// - [`Error::Missing`] if there is no such child.
-    /// - [`Error::WrongCount`] if there are multiple such children.
-    /// - [`Error::AlreadyUsed`] if children with this name were already requested.
+    /// - [`ErrorKind::Missing`] if there is no such child.
+    /// - [`ErrorKind::WrongCount`] if there are multiple such children.
+    /// - [`ErrorKind::AlreadyUsed`] if children with this name were already requested.
     pub fn child(&self, name: &str) -> Result<&Elem, Error> {
         match self.children(name)? {
-            [] => Err(Error::Missing {
+            [] => Err(ErrorKind::Missing {
                 path: self.path(),
                 position: self.position,
                 item: Item::Child(name.to_owned()),
-            }),
+            }
+            .into()),
             [child] => Ok(child),
-            children => Err(Error::WrongCount {
+            children => Err(ErrorKind::WrongCount {
                 path: self.path(),
                 position: self.position,
                 name: name.to_owned(),
                 expected: "exactly one",
                 found: children.len(),
-            }),
+            }
+            .into()),
         }
     }
 
     /// Marks the element and all its descendants as used.
     ///
-    /// Any later request on the element or its descendants fails with [`Error::AlreadyUsed`].
+    /// Any later request on the element or its descendants fails with [`ErrorKind::AlreadyUsed`].
     pub fn ignore_all(&self) {
         let mut stack = vec![self];
         while let Some(elem) = stack.pop() {
@@ -278,7 +294,7 @@ impl Elem {
 
     /// Checks that everything in the element and its descendants was used.
     ///
-    /// Returns [`Error::Unused`] for the first unused item. Within an element the order is:
+    /// Returns [`ErrorKind::Unused`] for the first unused item. Within an element the order is:
     /// attributes (by name), significant text, child names (by name), and then descendants
     /// of the used child names (by name, then in document order).
     /// Text consisting only of whitespace does not need to be used.
@@ -286,10 +302,13 @@ impl Elem {
         if self.all_used.get() {
             return Ok(());
         }
-        let unused = |item| Error::Unused {
-            path: self.path(),
-            position: self.position,
-            item,
+        let unused = |item| {
+            ErrorKind::Unused {
+                path: self.path(),
+                position: self.position,
+                item,
+            }
+            .into()
         };
 
         if let Some((name, _)) = self.attrs.iter().find(|(_, (used, _))| !used.get()) {
