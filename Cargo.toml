@@ -1,0 +1,19 @@
+[package]
+name = "use-xml"
+version = "0.1.0"
+edition = "2024"
+description = "Extract data from XML documents and check that nothing was left unused."
+repository = "https://github.com/radekm/use-xml-rust"
+
+[dependencies]
+quick-xml = "=0.42.0"
+thiserror = "=2.0.21"
+rust_decimal = { version = "=1.43.0", default-features = false, features = ["macros"] }
+time = { version = "=0.3.55", default-features = false, features = [
+    "formatting",
+    "parsing",
+    "macros",
+] }
+
+[dev-dependencies]
+anyhow = "=1.0.105"

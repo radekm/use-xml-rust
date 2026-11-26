@@ -10,7 +10,7 @@ A Rust library for extracting data from XML, modeled on
 ## Steps
 
 - [x] 0. Documentation and rules: `AGENTS.md`, `PLAN.md`, `README.md`, `docs/en/design.md` (+ Czech versions).
-- [ ] 1. Project skeleton: `Cargo.toml` (edition 2024, pinned dependencies), `src/lib.rs`
+- [x] 1. Project skeleton: `Cargo.toml` (edition 2024, pinned dependencies), `src/lib.rs`
       with `#![forbid(unsafe_code)]`, `.gitignore`, CI-like checks pass on an empty crate.
 - [ ] 2. `Position` and the `Error` type with all variants from the design.
 - [ ] 3. Parser into the `Elem` tree on top of `quick-xml` (`parse_str`):

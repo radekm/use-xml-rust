@@ -10,7 +10,7 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
 ## Kroky
 
 - [x] 0. Dokumentace a pravidla: `AGENTS.md`, `PLAN.md`, `README.md`, `docs/en/design.md` (+ české verze).
-- [ ] 1. Kostra projektu: `Cargo.toml` (edice 2024, zafixované závislosti), `src/lib.rs`
+- [x] 1. Kostra projektu: `Cargo.toml` (edice 2024, zafixované závislosti), `src/lib.rs`
       s `#![forbid(unsafe_code)]`, `.gitignore`, kontroly projdou na prázdném crate.
 - [ ] 2. `Position` a typ `Error` se všemi variantami z návrhu.
 - [ ] 3. Parser do stromu `Elem` nad `quick-xml` (`parse_str`):
