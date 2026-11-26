@@ -68,9 +68,9 @@ pub fn enumeration<'a, T: Clone>(
 }
 
 macro_rules! integer_parsers {
-    ($($t:ident),*) => {
+    ($signs:literal: $($t:ident),*) => {
         $(
-            #[doc = concat!("Parses `", stringify!($t), "` with `from_str`: digits with an optional leading `+` or `-`.")]
+            #[doc = concat!("Parses `", stringify!($t), "` with `from_str`: digits with an optional leading ", $signs, ".")]
             pub fn $t(s: &str) -> Result<$t, String> {
                 s.parse::<$t>().map_err(|_| concat!("expected ", stringify!($t)).to_owned())
             }
@@ -78,9 +78,8 @@ macro_rules! integer_parsers {
     };
 }
 
-integer_parsers!(
-    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
-);
+integer_parsers!("`+` or `-`": i8, i16, i32, i64, i128, isize);
+integer_parsers!("`+`": u8, u16, u32, u64, u128, usize);
 
 /// Parses a decimal number: an optional leading `+` or `-`, digits,
 /// and an optional `.` followed by digits. No exponent, no thousands separators.
@@ -179,6 +178,7 @@ pub fn date_time_utc(s: &str) -> Result<OffsetDateTime, String> {
 /// Parses a date time with an offset `YYYY-MM-DDTHH:MM:SS[.fffffffff](Z|+HH:MM|-HH:MM)`.
 ///
 /// A space may be used instead of `T`. The fraction has 1–9 digits.
+/// Date times which cannot be converted to UTC (e.g. `9999-12-31T23:59:59-01:00`) are rejected.
 pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
     let parse_offset = |rest: &str| -> Option<UtcOffset> {
         if rest == "Z" {
@@ -201,7 +201,15 @@ pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
         UtcOffset::from_hms(sign * hours, sign * minutes, 0).ok()
     };
     primitive_date_time(s)
-        .and_then(|(dt, rest)| Some(dt.assume_offset(parse_offset(rest)?)))
+        .and_then(|(dt, rest)| {
+            let dt = dt.assume_offset(parse_offset(rest)?);
+            // `time` accepts a date time whose UTC equivalent is outside of its supported range,
+            // but then e.g. `OffsetDateTime::to_offset(UtcOffset::UTC)` panics.
+            // We work around it by rejecting such date times, so the caller never gets a value
+            // which panics on conversion to UTC.
+            dt.checked_to_offset(UtcOffset::UTC)?;
+            Some(dt)
+        })
         .ok_or_else(|| {
             "expected date time in format YYYY-MM-DDTHH:MM:SS[.fffffffff](Z|+HH:MM|-HH:MM)"
                 .to_owned()
