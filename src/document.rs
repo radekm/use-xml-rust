@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use quick_xml::XmlVersion;
+use quick_xml::errors::IllFormedError;
 use quick_xml::escape::{EscapeError, resolve_predefined_entity};
 use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
@@ -15,6 +16,13 @@ use crate::error::{Error, ErrorKind, Position};
 
 /// Maximum nesting depth of elements. The root element has depth 1.
 pub const MAX_DEPTH: usize = 256;
+
+/// Message for a reference without the closing `;`, in text as well as in attribute values.
+///
+/// The messages of `quick-xml` are not used: in text it says that `;` was not found
+/// "before end of input" even if the input continues, and in attribute values it contains
+/// a byte range in the value, which is confusing next to the position in the document.
+const UNCLOSED_REFERENCE: &str = "entity or character reference not closed: `;` not found";
 
 /// Whitespace as defined by the XML specification.
 fn is_xml_whitespace(s: &str) -> bool {
@@ -318,10 +326,8 @@ impl<'a> Parser<'a> {
                     position,
                 }
             }
-            // The message of `quick-xml` contains a byte range in the value, which is confusing
-            // next to the position in the document.
             quick_xml::Error::Escape(EscapeError::UnterminatedEntity(_)) => ErrorKind::Xml {
-                message: "entity or character reference not closed: `;` not found".to_owned(),
+                message: UNCLOSED_REFERENCE.to_owned(),
                 position,
             },
             e => ErrorKind::Xml {
@@ -348,7 +354,13 @@ impl<'a> Parser<'a> {
                 Ok(event) => event,
                 Err(e) => {
                     let offset = self.reader.error_position();
-                    return Err(self.xml_error(e.to_string(), offset));
+                    let message = match e {
+                        quick_xml::Error::IllFormed(IllFormedError::UnclosedReference) => {
+                            UNCLOSED_REFERENCE.to_owned()
+                        }
+                        e => e.to_string(),
+                    };
+                    return Err(self.xml_error(message, offset));
                 }
             };
             let is_first = std::mem::replace(&mut first_event, false);

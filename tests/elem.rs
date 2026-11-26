@@ -945,13 +945,10 @@ fn invalid_references_point_to_the_reference() {
                 pos(2, 5),
             ),
         ),
-        (
-            "<a>a & b</a>",
-            xml(
-                "ill-formed document: entity or character reference not closed: `;` not found before end of input",
-                pos(1, 6),
-            ),
-        ),
+        // The same message as in attribute values, although the input continues.
+        ("<a>a & b</a>", xml(not_closed, pos(1, 6))),
+        ("<r>\n <a>č&amp</a></r>", xml(not_closed, pos(2, 6))),
+        ("<a>&</a>", xml(not_closed, pos(1, 4))),
     ];
     for (input, expected) in cases {
         assert_eq!(parse_str(input).unwrap_err(), expected, "{input:?}");
