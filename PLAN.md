@@ -29,7 +29,7 @@ A Rust library for extracting data from XML, modeled on
 - [ ] 8. Documentation: doc comments with examples, README usage example, `cargo doc` without warnings.
 - [x] 9. A parser from bytes (`parse_bytes`, UTF-8 only). `std::io::BufRead` is not planned
       because it is synchronous.
-- [x] 10. Benchmark ported from UseData.Xml (`cargo bench`, see `benches/`).
+- [x] 10. Benchmark ported from UseData.Xml using criterion (`cargo bench`, see `benches/`).
 
 ## Decisions
 

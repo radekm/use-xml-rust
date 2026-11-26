@@ -3,7 +3,7 @@ mod m7;
 
 #[test]
 fn m7_message() {
-    let deltas = m7::parse_message().expect("message is valid");
+    let deltas = m7::parse_message(m7::MESSAGE).expect("message is valid");
     assert_eq!(deltas.len(), 14);
     let first = &deltas[0];
     assert_eq!(first.contract_id, 1790055);

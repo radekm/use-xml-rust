@@ -44,6 +44,7 @@ Povolené jsou pouze tyto závislosti, zafixované na přesné verze:
 | `quick-xml`    | `=0.42.0` | Tokenizer XML.                                              |
 | `thiserror`    | `=2.0.21` | Typ `Error` knihovny.                                       |
 | `anyhow`       | `=1.0.105`| Pouze v testech a příkladech.                               |
+| `criterion`    | `=0.8.2`  | Pouze v benchmarcích; `default-features = false, features = ["cargo_bench_support"]` |
 | `rust_decimal` | `=1.43.0` | `default-features = false, features = ["macros"]`           |
 | `time`         | `=0.3.55` | `default-features = false, features = ["formatting", "parsing", "macros"]` |
 

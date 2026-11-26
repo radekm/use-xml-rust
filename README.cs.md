@@ -31,7 +31,7 @@ root.check_all_used()?;
 `cargo bench` parsuje zprávu s order bookem ve formátu M7 (převzato z UseData.Xml) a porovnává
 `parse_m7_message` (parsování, extrakce, `check_all_used`), `parse_str_only`
 a `read_by_quick_xml` (pouze tokenizace pomocí `quick-xml`).
-Benchmark používá jen standardní knihovnu, takže čísla jsou orientační.
+Benchmark používá [criterion](https://crates.io/crates/criterion).
 
 ## Dokumentace
 

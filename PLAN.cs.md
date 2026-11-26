@@ -29,7 +29,7 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
 - [ ] 8. Dokumentace: doc komentáře s příklady, příklad použití v README, `cargo doc` bez varování.
 - [x] 9. Parser z bajtů (`parse_bytes`, jen UTF-8). `std::io::BufRead` se neplánuje,
       protože je synchronní.
-- [x] 10. Benchmark převzatý z UseData.Xml (`cargo bench`, viz `benches/`).
+- [x] 10. Benchmark převzatý z UseData.Xml pomocí criterion (`cargo bench`, viz `benches/`).
 
 ## Rozhodnutí
 

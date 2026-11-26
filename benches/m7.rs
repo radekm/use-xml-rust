@@ -74,8 +74,8 @@ pub fn parse_order_book_delta(root: &Elem) -> Result<Vec<OrderBookDelta>, Error>
 }
 
 /// Parses the message, extracts the data, and checks that everything was used.
-pub fn parse_message() -> Result<Vec<OrderBookDelta>, Error> {
-    let root = use_xml::parse_str(MESSAGE)?;
+pub fn parse_message(message: &str) -> Result<Vec<OrderBookDelta>, Error> {
+    let root = use_xml::parse_str(message)?;
     let result = parse_order_book_delta(&root)?;
     root.check_all_used()?;
     Ok(result)

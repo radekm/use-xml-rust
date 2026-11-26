@@ -4,17 +4,17 @@
 //! compare `parse_m7_message` with `read_by_quick_xml`, which only tokenizes the message.
 
 use std::hint::black_box;
-use std::time::{Duration, Instant};
 
+use criterion::{Criterion, criterion_group, criterion_main};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 mod m7;
 
 /// Reads all events of the message similarly to `readByXmlReader` in UseData.Xml.
-fn read_by_quick_xml() -> usize {
+fn read_by_quick_xml(message: &str) -> usize {
     let mut i = 0usize;
-    let mut reader = Reader::from_str(m7::MESSAGE);
+    let mut reader = Reader::from_str(message);
     loop {
         match reader.read_event().expect("valid XML") {
             Event::Start(e) | Event::Empty(e) => {
@@ -37,49 +37,17 @@ fn read_by_quick_xml() -> usize {
     i
 }
 
-/// Runs `f` repeatedly and prints the mean and the best time per iteration.
-fn bench<T>(name: &str, mut f: impl FnMut() -> T) {
-    const SAMPLES: usize = 20;
-    const SAMPLE_TIME: Duration = Duration::from_millis(100);
-
-    // Warm up and estimate the number of iterations per sample.
-    let start = Instant::now();
-    let mut iterations = 0u64;
-    while start.elapsed() < SAMPLE_TIME {
-        black_box(f());
-        iterations += 1;
-    }
-
-    let mut per_iter = Vec::with_capacity(SAMPLES);
-    for _ in 0..SAMPLES {
-        let start = Instant::now();
-        for _ in 0..iterations {
-            black_box(f());
-        }
-        per_iter.push(start.elapsed().as_secs_f64() / iterations as f64);
-    }
-    let mean = per_iter.iter().sum::<f64>() / SAMPLES as f64;
-    let best = per_iter.iter().copied().fold(f64::INFINITY, f64::min);
-    println!(
-        "{name:<20} mean {:>9.2} µs   best {:>9.2} µs   ({SAMPLES} samples × {iterations} iterations)",
-        mean * 1e6,
-        best * 1e6
-    );
+fn benchmarks(c: &mut Criterion) {
+    c.bench_function("parse_m7_message", |b| {
+        b.iter(|| m7::parse_message(black_box(m7::MESSAGE)).expect("message is valid"))
+    });
+    c.bench_function("parse_str_only", |b| {
+        b.iter(|| use_xml::parse_str(black_box(m7::MESSAGE)).expect("message is valid"))
+    });
+    c.bench_function("read_by_quick_xml", |b| {
+        b.iter(|| read_by_quick_xml(black_box(m7::MESSAGE)))
+    });
 }
 
-fn main() {
-    // Without `--bench` (e.g. `cargo test --benches`) only check that the extraction works.
-    let deltas = m7::parse_message().expect("message is valid");
-    assert_eq!(deltas.len(), 14);
-    if !std::env::args().any(|a| a == "--bench") {
-        return;
-    }
-
-    bench("parse_m7_message", || {
-        m7::parse_message().expect("message is valid")
-    });
-    bench("parse_str_only", || {
-        use_xml::parse_str(m7::MESSAGE).expect("message is valid")
-    });
-    bench("read_by_quick_xml", read_by_quick_xml);
-}
+criterion_group!(benches, benchmarks);
+criterion_main!(benches);

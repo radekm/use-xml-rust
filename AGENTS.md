@@ -44,6 +44,7 @@ Only these dependencies are allowed, pinned to exact versions:
 | `quick-xml`    | `=0.42.0` | XML tokenizer.                                              |
 | `thiserror`    | `=2.0.21` | The library `Error` type.                                   |
 | `anyhow`       | `=1.0.105`| Only in tests and examples.                                 |
+| `criterion`    | `=0.8.2`  | Only in benchmarks; `default-features = false, features = ["cargo_bench_support"]` |
 | `rust_decimal` | `=1.43.0` | `default-features = false, features = ["macros"]`           |
 | `time`         | `=0.3.55` | `default-features = false, features = ["formatting", "parsing", "macros"]` |
 

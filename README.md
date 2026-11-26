@@ -31,7 +31,7 @@ root.check_all_used()?;
 `cargo bench` parses an M7 order book message (ported from UseData.Xml) and compares
 `parse_m7_message` (parsing, extraction, `check_all_used`), `parse_str_only`,
 and `read_by_quick_xml` (only tokenizing by `quick-xml`).
-The benchmark uses only the standard library, so the numbers are indicative.
+The benchmark uses [criterion](https://crates.io/crates/criterion).
 
 ## Documentation
 
