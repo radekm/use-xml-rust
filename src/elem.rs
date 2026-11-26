@@ -5,10 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use crate::error::{Error, ErrorKind, Item, Position};
+use crate::error::{Error, ErrorKind, Item, Position, truncate_value};
 
 /// Path of an element, shared between the element and its descendants.
-#[derive(Debug)]
+///
+/// `Debug` is implemented manually: a derived one would print the whole chain of ancestors
+/// as nested structures, which is slow and needs deep recursion for deep documents.
 pub(crate) struct ElemPath {
     pub(crate) parent: Option<Arc<ElemPath>>,
     /// Local name of the element.
@@ -39,11 +41,30 @@ impl fmt::Display for ElemPath {
     }
 }
 
+impl fmt::Debug for ElemPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ElemPath({self})")
+    }
+}
+
 /// An XML element with usage tracking.
 ///
 /// Every attribute, every child name, and the text can be used at most once.
 /// After the extraction call [`Elem::check_all_used`] to make sure that nothing was left unused.
-#[derive(Debug)]
+///
+/// The `Debug` output describes only this element, not its descendants:
+/// the path, the position, the attributes, the number of children for each name, and the text.
+/// Values longer than [`MAX_VALUE_CHARS`](crate::MAX_VALUE_CHARS) characters are cut.
+/// It does not change usage tracking.
+///
+/// ```
+/// let root = use_xml::parse_str(r#"<r x="1"><a/><a/><b>t</b></r>"#)?;
+/// assert_eq!(
+///     format!("{root:?}"),
+///     r#"Elem { path: "/r", position: Position { line: 1, column: 1 }, attrs: {"x": "1"}, children: {"a": 2, "b": 1}, text: "" }"#
+/// );
+/// # Ok::<(), use_xml::Error>(())
+/// ```
 pub struct Elem {
     pub(crate) path: Arc<ElemPath>,
     pub(crate) position: Position,
@@ -65,6 +86,44 @@ pub struct Elem {
     /// `ignore_all` was called: everything in the element, including its descendants, is used
     /// and any further request fails with already used.
     pub(crate) all_used: Cell<bool>,
+}
+
+/// Formats a map from names to values with `Debug`.
+struct DebugMap<I>(I);
+
+impl<I, K, V> fmt::Debug for DebugMap<I>
+where
+    I: Iterator<Item = (K, V)> + Clone,
+    K: fmt::Debug,
+    V: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.0.clone()).finish()
+    }
+}
+
+// A derived `Debug` would be wrong for a tree: it recurses through all descendants
+// and every descendant prints the whole chain of its ancestors (`ElemPath`).
+// For a document nested 256 levels deep the output had megabytes, `{:#?}` ran for minutes,
+// and the recursion needed hundreds of kilobytes of stack. So only this element is printed.
+impl fmt::Debug for Elem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let attrs = self
+            .attrs
+            .iter()
+            .map(|(name, (_, value))| (name.as_str(), truncate_value(value)));
+        let children = self
+            .children
+            .iter()
+            .map(|(name, (_, elems))| (name.as_str(), elems.len()));
+        f.debug_struct("Elem")
+            .field("path", &self.path())
+            .field("position", &self.position)
+            .field("attrs", &DebugMap(attrs))
+            .field("children", &DebugMap(children))
+            .field("text", &truncate_value(&self.text))
+            .finish()
+    }
 }
 
 impl Elem {
@@ -136,7 +195,7 @@ impl Elem {
                 path: self.path(),
                 position: self.position,
                 item: item(),
-                value: value.to_owned(),
+                value: truncate_value(value).into_owned(),
                 message: e.to_string(),
             }
             .into()

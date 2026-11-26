@@ -1,4 +1,4 @@
-use use_xml::{Error, ErrorKind, Item, MAX_DEPTH, Position, parse, parse_str};
+use use_xml::{Error, ErrorKind, Item, MAX_DEPTH, MAX_VALUE_CHARS, Position, parse, parse_str};
 
 fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
@@ -1074,5 +1074,73 @@ fn requesting_child_name_marks_all_children_as_used() -> anyhow::Result<()> {
 fn line_endings_in_cdata_are_normalized() -> anyhow::Result<()> {
     let e = parse_str("<a><![CDATA[x\r\ny\rz]]></a>")?;
     assert_eq!(e.text(parse::string)?, "x\ny\nz");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// `Debug` and long values.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn debug_prints_only_the_element() -> anyhow::Result<()> {
+    let e = parse_str(r#"<r x="1"><a y="2"><b/></a><a/></r>"#)?;
+    assert_eq!(
+        format!("{e:?}"),
+        r#"Elem { path: "/r", position: Position { line: 1, column: 1 }, attrs: {"x": "1"}, children: {"a": 2}, text: "" }"#
+    );
+    // `Debug` does not use anything.
+    assert!(matches!(
+        e.check_all_used().map_err(Error::into_kind),
+        Err(ErrorKind::Unused { item: Item::Attr(ref name), .. }) if name == "x"
+    ));
+    Ok(())
+}
+
+#[test]
+fn debug_of_deep_document_is_small() -> anyhow::Result<()> {
+    let e = parse_str(&("<a>".repeat(MAX_DEPTH) + &"</a>".repeat(MAX_DEPTH)))?;
+    assert!(format!("{e:#?}").len() < 200);
+    Ok(())
+}
+
+#[test]
+fn debug_cuts_long_values() -> anyhow::Result<()> {
+    let long = "č".repeat(MAX_VALUE_CHARS + 1);
+    let e = parse_str(&format!(r#"<a x="{long}">{long}</a>"#))?;
+    let cut = format!("{}…", "č".repeat(MAX_VALUE_CHARS));
+    assert_eq!(
+        format!("{e:?}"),
+        format!(
+            r#"Elem {{ path: "/a", position: Position {{ line: 1, column: 1 }}, attrs: {{"x": "{cut}"}}, children: {{}}, text: "{cut}" }}"#
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn invalid_value_cuts_long_values() -> anyhow::Result<()> {
+    let exact = "x".repeat(MAX_VALUE_CHARS);
+    let long = "ž".repeat(MAX_VALUE_CHARS + 1);
+    let e = parse_str(&format!(r#"<a x="{exact}">{long}</a>"#))?;
+    assert_eq!(
+        e.attr("x", parse::u8).unwrap_err(),
+        ErrorKind::InvalidValue {
+            path: "/a".to_owned(),
+            position: pos(1, 1),
+            item: Item::Attr("x".to_owned()),
+            value: exact,
+            message: "expected u8".to_owned()
+        }
+    );
+    assert_eq!(
+        e.text(parse::u8).unwrap_err(),
+        ErrorKind::InvalidValue {
+            path: "/a".to_owned(),
+            position: pos(1, 1),
+            item: Item::Text,
+            value: format!("{}…", "ž".repeat(MAX_VALUE_CHARS)),
+            message: "expected u8".to_owned()
+        }
+    );
     Ok(())
 }

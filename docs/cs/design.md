@@ -53,6 +53,13 @@ Všechny metody API berou `&self`. Použití se sleduje vnitřní mutabilitou (`
 takže uživatel může držet reference na více dětí a přitom číst atributy rodiče.
 `Elem` proto není `Sync`.
 
+`Debug` pro `Elem` a `ElemPath` je implementovaný ručně. Odvozený `Debug` je pro tento strom špatný:
+rekurzivně prochází všechny potomky a každý potomek vypisuje celý řetězec svých předků,
+takže pro dokument zanořený do hloubky 256 měl výstup megabajty, `{:#?}` běžel minuty
+a rekurze potřebovala stovky kilobajtů zásobníku. `Debug` pro `Elem` vypíše jen samotný element:
+jeho cestu, pozici, atributy, počet dětí pro každé jméno a text.
+Hodnoty delší než `MAX_VALUE_CHARS = 100` znaků se zkrátí a končí `…`.
+
 Pořadí z dokumentu se zachovává jen mezi dětmi se stejným local name.
 Pořadí mezi dětmi s různými jmény se ztrácí (stejně jako v originálu).
 
@@ -205,6 +212,7 @@ vztahující se k elementu nese cestu a pozici elementu. Varianty `ErrorKind`:
 - `WrongCount` – `child` nebo `child_opt` našly více než jedno dítě.
 - `AlreadyUsed`
 - `InvalidValue` – parser hodnoty selhal; obsahuje jméno atributu (nebo text), vstup a zprávu.
+  Vstup delší než `MAX_VALUE_CHARS` znaků se zkrátí a končí `…`.
 - `Unused` – hlásí `check_all_used`.
 
 `AlreadyUsed`, `Missing`, `InvalidValue` a `Unused` obsahují `Item`:

@@ -53,6 +53,13 @@ All API methods take `&self`. Usage is tracked with interior mutability (`Cell`,
 so a user can hold references to several children and still read the parent's attributes.
 `Elem` is therefore not `Sync`.
 
+`Debug` of `Elem` and `ElemPath` is implemented manually. A derived `Debug` is wrong for this tree:
+it recurses through all descendants and every descendant prints the whole chain of its ancestors,
+so for a document nested 256 levels deep the output had megabytes, `{:#?}` ran for minutes,
+and the recursion needed hundreds of kilobytes of stack. `Debug` of `Elem` prints only the element:
+its path, position, attributes, the number of children for each name, and its text.
+Values longer than `MAX_VALUE_CHARS = 100` characters are cut and end with `…`.
+
 Document order is kept only among children with the same local name.
 The order between children with different names is lost (as in the original).
 
@@ -205,6 +212,7 @@ to an element carries the path and position of the element. Variants of `ErrorKi
 - `WrongCount` – `child` or `child_opt` found more than one child.
 - `AlreadyUsed`
 - `InvalidValue` – a value parser failed; contains the attribute name (or text), the input, and the message.
+  An input longer than `MAX_VALUE_CHARS` characters is cut and ends with `…`.
 - `Unused` – reported by `check_all_used`.
 
 `AlreadyUsed`, `Missing`, `InvalidValue`, and `Unused` contain an `Item`:

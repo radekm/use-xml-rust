@@ -38,7 +38,7 @@ pub mod parse;
 
 pub use document::{MAX_DEPTH, parse_bytes, parse_str};
 pub use elem::Elem;
-pub use error::{Error, ErrorKind, Item, Position};
+pub use error::{Error, ErrorKind, Item, MAX_VALUE_CHARS, Position};
 
 // Compiles the examples in the READMEs as doc tests.
 #[cfg(doctest)]

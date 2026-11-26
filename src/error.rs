@@ -1,6 +1,21 @@
 //! The error type of the library.
 
+use std::borrow::Cow;
 use std::fmt;
+
+/// Maximum number of characters of a value stored in [`ErrorKind::InvalidValue`]
+/// and shown by the `Debug` implementation of [`Elem`](crate::Elem).
+/// Longer values are cut and end with `…`.
+pub const MAX_VALUE_CHARS: usize = 100;
+
+/// Returns at most [`MAX_VALUE_CHARS`] characters of `value`, followed by `…` if it was cut.
+pub(crate) fn truncate_value(value: &str) -> Cow<'_, str> {
+    match value.char_indices().nth(MAX_VALUE_CHARS) {
+        None => Cow::Borrowed(value),
+        // `i` is the index of a character, so it is on a character boundary.
+        Some((i, _)) => Cow::Owned(format!("{}…", &value[..i])),
+    }
+}
 
 /// A position in the source document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -226,7 +241,8 @@ pub enum ErrorKind {
         position: Position,
         /// The attribute or text.
         item: Item,
-        /// The rejected value.
+        /// The rejected value. Values longer than [`MAX_VALUE_CHARS`] characters
+        /// are cut and end with `…`, so a huge text does not end up in the error.
         value: String,
         /// Message from the value parser.
         message: String,
