@@ -67,6 +67,43 @@ fn decimal_is_strict() {
     }
     // Too many digits to represent exactly.
     assert!(parse::decimal("0.12345678901234567890123456789012").is_err());
+    assert!(parse::decimal(&format!("0.{}1", "0".repeat(28))).is_err());
+    assert!(parse::decimal("79228162514264337593543950336.0").is_err());
+}
+
+#[test]
+fn decimal_keeps_scale() {
+    let parsed = parse::decimal("12.500").unwrap();
+    assert_eq!(
+        (parsed.to_string(), parsed.scale()),
+        ("12.500".to_owned(), 3)
+    );
+    // 28 digits after `.` is the maximal scale.
+    let max_scale = format!("1.{}", "0".repeat(28));
+    assert_eq!(parse::decimal(&max_scale).unwrap().to_string(), max_scale);
+}
+
+#[test]
+fn decimal_removes_trailing_zeros_only_when_needed() {
+    let cases = [
+        (format!("1.{}", "0".repeat(29)), "1"),
+        (format!("-1.5{}", "0".repeat(30)), "-1.5"),
+        (
+            "79228162514264337593543950335.000".to_owned(),
+            "79228162514264337593543950335",
+        ),
+        (
+            "+79228162514264337593543950335.0".to_owned(),
+            "79228162514264337593543950335",
+        ),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(
+            parse::decimal(&input).map(|d| d.to_string()),
+            Ok(expected.to_owned()),
+            "{input:?}"
+        );
+    }
 }
 
 #[test]

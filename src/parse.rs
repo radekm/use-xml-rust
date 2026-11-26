@@ -84,7 +84,19 @@ integer_parsers!("`+`": u8, u16, u32, u64, u128, usize);
 /// Parses a decimal number: an optional leading `+` or `-`, digits,
 /// and an optional `.` followed by digits. No exponent, no thousands separators.
 ///
-/// Numbers which cannot be represented exactly by [`Decimal`] are rejected.
+/// The scale of the result is the number of digits after `.`. If the number cannot be
+/// represented with this scale (e.g. it has more than 28 digits after `.`), trailing zeros
+/// after `.` are removed and the scale decreases. Numbers which still cannot be represented
+/// exactly by [`Decimal`] are rejected.
+///
+/// ```
+/// use use_xml::parse;
+///
+/// assert_eq!(parse::decimal("12.50").unwrap().to_string(), "12.50");
+/// let thirty_zeros = format!("1.{}", "0".repeat(30));
+/// assert_eq!(parse::decimal(&thirty_zeros).unwrap().to_string(), "1");
+/// assert!(parse::decimal(&format!("0.{}1", "0".repeat(28))).is_err());
+/// ```
 pub fn decimal(s: &str) -> Result<Decimal, String> {
     let error = || "expected decimal".to_owned();
     let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
@@ -97,8 +109,23 @@ pub fn decimal(s: &str) -> Result<Decimal, String> {
         return Err(error());
     }
     // `from_str_exact` does not accept a leading `+`.
-    let parsed = Decimal::from_str_exact(s.strip_prefix('+').unwrap_or(s)).map_err(|_| error())?;
-    Ok(parsed)
+    let s = s.strip_prefix('+').unwrap_or(s);
+    if let Ok(parsed) = Decimal::from_str_exact(s) {
+        return Ok(parsed);
+    }
+    // Retry without trailing zeros after `.`; they do not change the value.
+    let Some(frac_part) = frac_part else {
+        return Err(error());
+    };
+    let trimmed_frac = frac_part.trim_end_matches('0');
+    if trimmed_frac.len() == frac_part.len() {
+        return Err(error());
+    }
+    // `s` ends with `frac_part`, so the length of the rest is on a character boundary
+    // (all removed characters are ASCII zeros). A trailing `.` is removed too.
+    let trimmed = &s[..s.len() - (frac_part.len() - trimmed_frac.len())];
+    let trimmed = trimmed.strip_suffix('.').unwrap_or(trimmed);
+    Decimal::from_str_exact(trimmed).map_err(|_| error())
 }
 
 /// Like [`decimal`] but rejects negative numbers.

@@ -176,7 +176,10 @@ Formáty hodnot (všechny striktní, bez bílých znaků okolo):
 
 - Celá čísla: rustové `from_str` – číslice s volitelným `+` nebo `-` na začátku.
 - `decimal`: volitelné `+` nebo `-` na začátku, číslice, volitelně `.` následovaná číslicemi.
-  Žádný exponent ani oddělovače tisíců.
+  Žádný exponent ani oddělovače tisíců. Scale je počet číslic za `.`
+  (`12.50` zůstane `12.50`). Pokud číslo s tímto scale nejde reprezentovat
+  (`Decimal` povoluje nejvýše 28 číslic za `.`), odstraní se koncové nuly za `.`.
+  Čísla, která ani pak nejde reprezentovat přesně, se odmítnou.
 - `bool`: přesně `true` nebo `false`.
 - `date_time_utc`: `YYYY-MM-DDTHH:MM:SS[.fffffffff]Z`; místo `T` lze použít mezeru;
   zlomek sekund má 1–9 číslic; jako offset se přijímá pouze `Z`.

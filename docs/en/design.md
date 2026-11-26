@@ -176,7 +176,10 @@ Value formats (all strict, no surrounding whitespace):
 
 - Integers: Rust `from_str` – digits with an optional leading `+` or `-`.
 - `decimal`: an optional leading `+` or `-`, digits, an optional `.` followed by digits.
-  No exponent, no thousands separators.
+  No exponent, no thousands separators. The scale is the number of digits after `.`
+  (`12.50` stays `12.50`). If the number cannot be represented with this scale
+  (`Decimal` allows at most 28 digits after `.`), trailing zeros after `.` are removed.
+  Numbers which still cannot be represented exactly are rejected.
 - `bool`: exactly `true` or `false`.
 - `date_time_utc`: `YYYY-MM-DDTHH:MM:SS[.fffffffff]Z`; a space may be used instead of `T`;
   the fraction has 1–9 digits; only `Z` is accepted as the offset.
