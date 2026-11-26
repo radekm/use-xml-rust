@@ -72,8 +72,13 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
 
 - Jmenné prostory se ignorují. Elementy a atributy se identifikují pouze podle local name
   (části za prefixem).
-- Atributy `xmlns` a `xmlns:*` se přeskakují.
+- Atributy `xmlns` a `xmlns:*` se přeskakují ještě před všemi ostatními kontrolami. Je to záměr:
+  jmenné prostory se ignorují, takže se deklarace jmenných prostorů vůbec nekontrolují.
+  Reference v jejich hodnotách se nedekódují ani nevalidují (např. `xmlns="&foo;"` projde)
+  a duplicitní deklarace (např. dva atributy `xmlns` nebo dva `xmlns:p`) se nedetekují.
 - Dva atributy jednoho elementu se stejným local name (např. `a:x` a `b:x`) jsou chyba.
+  Platí to i pro atributy s rezervovaným prefixem `xml`: `xml:lang` spolu s `lang`
+  (nebo `xml:space` spolu se `space`) na jednom elementu je chyba `DuplicateAttr`.
 - Dvě děti jednoho elementu se stejným local name, ale různými prefixy
   (např. `<a:item/>` a `<b:item/>`) jsou chyba, takže jeden `Vec<Elem>` nikdy nemíchá elementy
   s různými kvalifikovanými jmény. Děti se stejným prefixem (nebo obě bez prefixu) jsou v pořádku.
@@ -98,6 +103,9 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
   kontroluje jen komentáře a párování koncových tagů, takže se nedetekuje:
   neplatná jména (např. `<1/>`, `<a 1="x"/>`), jména, která nejsou správně utvořená
   vzhledem ke jmenným prostorům (např. `<a:/>` má prázdné local name, `<a:b:c/>` má local name `b:c`),
+  prázdná jména elementů (`< />` a `<a:/>` dají element, jehož `name()` je `""`;
+  cesta takového kořene je `/`), chybějící bílý znak mezi atributy
+  (např. `<a x="1"y="2"/>` projde),
   `<` v hodnotách atributů, obsah XML deklarace (např. chybějící `version`),
   zakázané znaky (řídicí znaky, i ze znakových referencí jako `&#1;`;
   odmítnou se jen znakové reference na `0`, na surrogáty a nad `U+10FFFF`)

@@ -72,8 +72,13 @@ Any violation is a parse error, not an error discovered later during extraction.
 
 - Namespaces are ignored. Elements and attributes are identified only by their local name
   (the part after the prefix).
-- Attributes `xmlns` and `xmlns:*` are skipped.
+- Attributes `xmlns` and `xmlns:*` are skipped before any other check. This is intentional:
+  namespaces are ignored, so namespace declarations are not checked at all.
+  References in their values are neither decoded nor validated (e.g. `xmlns="&foo;"` is accepted),
+  and duplicate declarations (e.g. two `xmlns` or two `xmlns:p` attributes) are not detected.
 - Two attributes of one element with the same local name (e.g. `a:x` and `b:x`) are an error.
+  This includes attributes with the reserved prefix `xml`: `xml:lang` together with `lang`
+  (or `xml:space` together with `space`) on one element is a `DuplicateAttr` error.
 - Two children of one element with the same local name but different prefixes
   (e.g. `<a:item/>` and `<b:item/>`) are an error, so one `Vec<Elem>` never mixes elements
   with different qualified names. Children with the same prefix (or both without a prefix) are fine.
@@ -98,6 +103,9 @@ Any violation is a parse error, not an error discovered later during extraction.
   it checks only comments and matching end tags, so the following is not detected:
   invalid names (e.g. `<1/>`, `<a 1="x"/>`), names which are not namespace-well-formed
   (e.g. `<a:/>` has an empty local name, `<a:b:c/>` has the local name `b:c`),
+  empty element names (`< />` and `<a:/>` give an element whose `name()` is `""`;
+  the path of such a root is `/`), a missing whitespace between attributes
+  (e.g. `<a x="1"y="2"/>` is accepted),
   `<` in attribute values, the content of the XML declaration (e.g. a missing `version`),
   forbidden characters (control characters, also from character references like `&#1;`;
   only character references to `0`, to surrogates, and above `U+10FFFF` are rejected),

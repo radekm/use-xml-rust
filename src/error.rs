@@ -168,6 +168,9 @@ pub enum ErrorKind {
     },
 
     /// An element has multiple attributes with the same local name.
+    ///
+    /// Prefixes are ignored, so e.g. `xml:lang` and `lang` on one element are duplicates too.
+    /// Namespace declarations (`xmlns`, `xmlns:*`) are skipped and never reported.
     #[error("element {path} at {position} contains multiple attributes with local name `{name}`")]
     DuplicateAttr {
         /// Path of the element.

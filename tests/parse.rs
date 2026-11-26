@@ -10,6 +10,11 @@ fn strings() {
     assert_eq!(parse::string_non_empty(" "), Ok(" ".to_owned()));
     assert!(parse::string_non_whitespace(" \t\r\n").is_err());
     assert_eq!(parse::string_non_whitespace(" x "), Ok(" x ".to_owned()));
+    // Only XML whitespace counts as whitespace.
+    assert_eq!(
+        parse::string_non_whitespace(" \u{A0} "),
+        Ok(" \u{A0} ".to_owned())
+    );
 }
 
 #[test]
