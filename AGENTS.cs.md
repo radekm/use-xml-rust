@@ -27,7 +27,8 @@ Podrobný návrh je v [docs/cs/design.md](docs/cs/design.md).
 
 ## Rust
 
-- Používej nejnovější stable Rust a edici 2024.
+- Používej nejnovější stable Rust a edici 2024. Verze je zafixovaná v `rust-toolchain.toml`;
+  po vydání nové stable verze ji aktualizuj (a oprav nová varování).
 - `#![forbid(unsafe_code)]`.
 - Knihovna nesmí zpanikařit na žádném vstupním dokumentu ani při žádném použití API.
   Všechna selhání se hlásí přes `Result` s typem `Error` knihovny.
@@ -45,8 +46,8 @@ Povolené jsou pouze tyto závislosti, zafixované na přesné verze:
 | `thiserror`    | `=2.0.21` | Typ `Error` knihovny.                                       |
 | `anyhow`       | `=1.0.105`| Pouze v testech a příkladech.                               |
 | `criterion`    | `=0.8.2`  | Pouze v benchmarcích; `default-features = false, features = ["cargo_bench_support"]` |
-| `rust_decimal` | `=1.43.0` | `default-features = false, features = ["macros"]`           |
-| `time`         | `=0.3.55` | `default-features = false, features = ["formatting", "parsing", "macros"]` |
+| `rust_decimal` | `=1.43.0` | `default-features = false`; feature `macros` jen v `[dev-dependencies]` |
+| `time`         | `=0.3.55` | `default-features = false`; features `formatting`, `macros` jen v `[dev-dependencies]` |
 
 Bez výslovného svolení správce žádnou závislost nepřidávej, neodebírej ani neaktualizuj.
 

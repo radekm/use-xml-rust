@@ -11,14 +11,13 @@ autobenches = false
 [dependencies]
 quick-xml = "=0.42.0"
 thiserror = "=2.0.21"
-rust_decimal = { version = "=1.43.0", default-features = false, features = ["macros"] }
-time = { version = "=0.3.55", default-features = false, features = [
-    "formatting",
-    "parsing",
-    "macros",
-] }
+rust_decimal = { version = "=1.43.0", default-features = false }
+time = { version = "=0.3.55", default-features = false }
 
 [dev-dependencies]
+# Features needed only by tests (`dec!`, `datetime!`, `format_description!`, and formatting).
+rust_decimal = { version = "=1.43.0", default-features = false, features = ["macros"] }
+time = { version = "=0.3.55", default-features = false, features = ["formatting", "macros"] }
 anyhow = "=1.0.105"
 criterion = { version = "=0.8.2", default-features = false, features = ["cargo_bench_support"] }
 

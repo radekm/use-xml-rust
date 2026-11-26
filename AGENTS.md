@@ -27,7 +27,8 @@ The detailed design is in [docs/en/design.md](docs/en/design.md).
 
 ## Rust
 
-- Use the latest stable Rust and edition 2024.
+- Use the latest stable Rust and edition 2024. The version is pinned in `rust-toolchain.toml`;
+  update it (together with fixing new warnings) when a new stable version is released.
 - `#![forbid(unsafe_code)]`.
 - The library must not panic on any input document or any API usage.
   All failures are reported through `Result` with the library's `Error` type.
@@ -45,8 +46,8 @@ Only these dependencies are allowed, pinned to exact versions:
 | `thiserror`    | `=2.0.21` | The library `Error` type.                                   |
 | `anyhow`       | `=1.0.105`| Only in tests and examples.                                 |
 | `criterion`    | `=0.8.2`  | Only in benchmarks; `default-features = false, features = ["cargo_bench_support"]` |
-| `rust_decimal` | `=1.43.0` | `default-features = false, features = ["macros"]`           |
-| `time`         | `=0.3.55` | `default-features = false, features = ["formatting", "parsing", "macros"]` |
+| `rust_decimal` | `=1.43.0` | `default-features = false`; feature `macros` only in `[dev-dependencies]` |
+| `time`         | `=0.3.55` | `default-features = false`; features `formatting`, `macros` only in `[dev-dependencies]` |
 
 Do not add, remove, or upgrade a dependency without the maintainer's explicit permission.
 
