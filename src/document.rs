@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use quick_xml::XmlVersion;
-use quick_xml::escape::resolve_predefined_entity;
+use quick_xml::escape::{EscapeError, resolve_predefined_entity};
+use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
@@ -31,9 +32,11 @@ struct PositionTracker<'a> {
 }
 
 impl<'a> PositionTracker<'a> {
+    /// `input` is the whole document. A leading byte order mark is skipped
+    /// because `quick-xml` removes it and reports offsets relative to the rest of the input.
     fn new(input: &'a str) -> Self {
         Self {
-            input,
+            input: input.strip_prefix('\u{FEFF}').unwrap_or(input),
             offset: 0,
             position: Position { line: 1, column: 1 },
         }
@@ -160,7 +163,8 @@ pub fn parse_str(input: &str) -> Result<Elem, Error> {
 /// Parses an XML document encoded in UTF-8 into a tree of elements and returns the root element.
 ///
 /// A leading UTF-8 byte order mark is skipped. Other encodings are not supported:
-/// a UTF-16 byte order mark, an encoding other than UTF-8 in the XML declaration,
+/// UTF-16 or UTF-32 (detected by a byte order mark or by the encoded `<` at the start),
+/// an encoding other than UTF-8 in the XML declaration,
 /// or invalid UTF-8 result in [`Error::Encoding`]. Otherwise it behaves like [`parse_str`].
 ///
 /// ```
@@ -174,14 +178,13 @@ pub fn parse_str(input: &str) -> Result<Elem, Error> {
 /// Returns an error if the input is not UTF-8, the document is not well-formed,
 /// or it violates a structural rule.
 pub fn parse_bytes(input: &[u8]) -> Result<Elem, Error> {
-    let start = Position { line: 1, column: 1 };
-    if input.starts_with(&[0xFF, 0xFE]) || input.starts_with(&[0xFE, 0xFF]) {
+    if let Some(encoding) = detect_unsupported_encoding(input) {
         return Err(Error::Encoding {
-            message: "UTF-16 is not supported".to_owned(),
-            position: start,
+            message: format!("{encoding} is not supported"),
+            position: Position { line: 1, column: 1 },
         });
     }
-    let input = input.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(input);
+    // The UTF-8 byte order mark is valid UTF-8, it is skipped later by `quick-xml`.
     let input = std::str::from_utf8(input).map_err(|e| {
         // The prefix up to `valid_up_to` is valid UTF-8.
         let valid = std::str::from_utf8(&input[..e.valid_up_to()]).unwrap_or_default();
@@ -193,8 +196,28 @@ pub fn parse_bytes(input: &[u8]) -> Result<Elem, Error> {
     parse(input, true)
 }
 
+/// Detects UTF-16 and UTF-32 by a byte order mark or, if there is none,
+/// by the encoded `<` at the start of the document (XML 1.0, appendix F).
+fn detect_unsupported_encoding(input: &[u8]) -> Option<&'static str> {
+    // UTF-32 must be checked first because its byte order marks start like UTF-16 ones.
+    const PREFIXES: [(&[u8], &str); 8] = [
+        (b"\x00\x00\xFE\xFF", "UTF-32"),
+        (b"\xFF\xFE\x00\x00", "UTF-32"),
+        (b"\x00\x00\x00<", "UTF-32"),
+        (b"<\x00\x00\x00", "UTF-32"),
+        (b"\xFE\xFF", "UTF-16"),
+        (b"\xFF\xFE", "UTF-16"),
+        (b"\x00<", "UTF-16"),
+        (b"<\x00", "UTF-16"),
+    ];
+    PREFIXES
+        .iter()
+        .find(|(prefix, _)| input.starts_with(prefix))
+        .map(|(_, encoding)| *encoding)
+}
+
+/// Parses `input`. A leading byte order mark is removed by `quick-xml`.
 fn parse(input: &str, check_encoding: bool) -> Result<Elem, Error> {
-    let input = input.strip_prefix('\u{FEFF}').unwrap_or(input);
     let mut reader = Reader::from_str(input);
     let config = reader.config_mut();
     config.enable_all_checks(true);
@@ -217,6 +240,33 @@ impl<'a> Parser<'a> {
             message,
             position: self.tracker.position_at(offset),
         }
+    }
+
+    /// Converts an error in the attribute list of the tag starting at `tag_offset`.
+    fn attr_error(&mut self, error: AttrError, tag_offset: u64) -> Error {
+        let (relative, message) = match error {
+            AttrError::ExpectedEq(pos) => (
+                pos,
+                "attribute name must be directly followed by `=` or whitespace".to_owned(),
+            ),
+            AttrError::ExpectedValue(pos) => {
+                (pos, "`=` must be followed by an attribute value".to_owned())
+            }
+            AttrError::UnquotedValue(pos) => (
+                pos,
+                "attribute value must be enclosed in `\"` or `'`".to_owned(),
+            ),
+            AttrError::ExpectedQuote(pos, quote) => (
+                pos,
+                format!(
+                    "missing closing quote `{}` in attribute value",
+                    char::from(quote)
+                ),
+            ),
+            AttrError::Duplicated(pos, _) => (pos, "duplicated attribute".to_owned()),
+        };
+        // Positions in `AttrError` are relative to the tag name, i.e. to the byte after `<`.
+        self.xml_error(message, tag_offset + 1 + relative as u64)
     }
 
     fn unexpected(&mut self, node: &str, offset: u64) -> Error {
@@ -255,33 +305,43 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Event::Text(text) => {
+                    // Errors point to the first non-whitespace character, not to the leading whitespace.
+                    let skipped = text
+                        .as_ref()
+                        .bytes()
+                        .position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
+                        .unwrap_or(0);
                     let text = text.xml10_content();
-                    self.add_text(&text, false, offset, "text")?;
+                    self.add_text(&text, false, offset + skipped as u64, "text")?;
                 }
                 Event::CData(cdata) => {
                     let text = cdata.xml10_content();
                     self.add_text(&text, true, offset, "CDATA section")?;
                 }
                 Event::GeneralRef(reference) => {
-                    let resolved = match reference.resolve_char_ref() {
-                        Ok(Some(c)) => c.to_string(),
+                    // References are not allowed outside of the root element,
+                    // not even references to whitespace characters.
+                    let Some(builder) = self.stack.last() else {
+                        return Err(
+                            self.unexpected("entity reference outside of the root element", offset)
+                        );
+                    };
+                    let mut buffer = [0; 4];
+                    let resolved: &str = match reference.resolve_char_ref() {
+                        Ok(Some(c)) => c.encode_utf8(&mut buffer),
                         Ok(None) => match resolve_predefined_entity(&reference) {
-                            Some(s) => s.to_owned(),
+                            Some(s) => s,
                             None => {
-                                let name = reference.to_string();
-                                return Err(match self.stack.last() {
-                                    Some(builder) => Error::UnknownEntity {
-                                        name,
-                                        path: builder.path.to_string(),
-                                        position: self.tracker.position_at(offset),
-                                    },
-                                    None => self.unexpected("entity reference", offset),
+                                return Err(Error::UnknownEntity {
+                                    name: reference.to_string(),
+                                    path: builder.path.to_string(),
+                                    position: self.tracker.position_at(offset),
                                 });
                             }
                         },
                         Err(e) => return Err(self.xml_error(e.to_string(), offset)),
                     };
-                    self.add_text(&resolved, false, offset, "entity reference")?;
+                    self.add_text(resolved, false, offset, "entity reference")?;
                 }
                 Event::Decl(decl) => {
                     if !is_first {
@@ -391,11 +451,11 @@ impl<'a> Parser<'a> {
         });
 
         let mut attrs = BTreeMap::new();
-        for attr in start.attributes() {
-            let attr = attr.map_err(|e| Error::Xml {
-                message: e.to_string(),
-                position,
-            })?;
+        let mut attributes = start.attributes();
+        // Duplicates are detected below by local name, which also covers equal qualified names.
+        attributes.with_checks(false);
+        for attr in attributes {
+            let attr = attr.map_err(|e| self.attr_error(e, offset))?;
             let (attr_local, attr_prefix) = attr.key.decompose();
             let attr_local: &str = attr_local.as_ref();
             let is_namespace_decl = match &attr_prefix {
@@ -407,9 +467,18 @@ impl<'a> Parser<'a> {
             }
             let value = attr
                 .normalized_value(XmlVersion::Implicit1_0)
-                .map_err(|e| Error::Xml {
-                    message: e.to_string(),
-                    position,
+                .map_err(|e| match e {
+                    quick_xml::Error::Escape(EscapeError::UnrecognizedEntity(_, name)) => {
+                        Error::UnknownEntity {
+                            name,
+                            path: path.to_string(),
+                            position,
+                        }
+                    }
+                    e => Error::Xml {
+                        message: e.to_string(),
+                        position,
+                    },
                 })?;
             if attrs
                 .insert(

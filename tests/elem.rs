@@ -261,10 +261,14 @@ fn duplicate_attribute_with_different_prefixes() {
 
 #[test]
 fn duplicate_attribute_with_same_name() {
-    assert!(matches!(
-        parse_str(r#"<e x="1" x="2"/>"#),
-        Err(Error::Xml { .. })
-    ));
+    assert_eq!(
+        parse_str(r#"<e x="1" x="2"/>"#).unwrap_err(),
+        Error::DuplicateAttr {
+            path: "/e".to_owned(),
+            position: pos(1, 1),
+            name: "x".to_owned()
+        }
+    );
 }
 
 #[test]
@@ -320,7 +324,7 @@ fn text_after_root_is_not_allowed() {
     assert!(matches!(
         parse_str("<a/>\n x"),
         Err(Error::UnexpectedNode {
-            position: Position { line: 1, column: 5 },
+            position: Position { line: 2, column: 2 },
             ..
         })
     ));

@@ -96,9 +96,10 @@ Any violation is a parse error, not an error discovered later during extraction.
 
 - `parse_str(&str)` parses an already decoded document; the encoding in the XML declaration is ignored.
 - `parse_bytes(&[u8])` parses a document encoded in UTF-8. Other encodings are not supported:
-  a UTF-16 byte order mark, an encoding other than UTF-8 in the XML declaration (case-insensitive),
+  UTF-16 or UTF-32 (detected by a byte order mark or by the encoded `<` at the start),
+  an encoding other than UTF-8 in the XML declaration (case-insensitive),
   or invalid UTF-8 result in an `Encoding` error.
-- A leading byte order mark is skipped.
+- A single leading byte order mark is skipped (by `quick-xml`). A second one is an error.
 
 - Before the root element only the XML declaration, whitespace, comments, and processing instructions
   are allowed. Anything else (including `DOCTYPE`) is an error.

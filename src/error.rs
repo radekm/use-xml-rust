@@ -80,7 +80,7 @@ pub enum Error {
         name: String,
         /// Path of the element containing the reference.
         path: String,
-        /// Position of the reference.
+        /// Position of the reference, or of the element for a reference in an attribute value.
         position: Position,
     },
 

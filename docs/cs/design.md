@@ -96,9 +96,10 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
 
 - `parse_str(&str)` parsuje již dekódovaný dokument; kódování v XML deklaraci se ignoruje.
 - `parse_bytes(&[u8])` parsuje dokument v kódování UTF-8. Jiná kódování podporovaná nejsou:
-  UTF-16 byte order mark, jiné kódování než UTF-8 v XML deklaraci (bez ohledu na velikost písmen)
+  UTF-16 nebo UTF-32 (rozpoznané podle byte order mark nebo podle zakódovaného `<` na začátku),
+  jiné kódování než UTF-8 v XML deklaraci (bez ohledu na velikost písmen)
   nebo neplatné UTF-8 vedou na chybu `Encoding`.
-- Byte order mark na začátku se přeskakuje.
+- Jeden byte order mark na začátku se přeskakuje (dělá to `quick-xml`). Druhý je chyba.
 
 - Před kořenovým elementem je povolena jen XML deklarace, bílé znaky, komentáře a processing instructions.
   Cokoli jiného (včetně `DOCTYPE`) je chyba.
