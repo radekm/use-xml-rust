@@ -60,8 +60,10 @@ impl fmt::Display for Item {
 /// ```
 /// use use_xml::ErrorKind;
 ///
-/// let error = use_xml::parse_str("<a><b/>text</a>").unwrap_err();
+/// let error = use_xml::parse_str("<r>\n  <a><b/>text</a></r>").unwrap_err();
 /// assert!(matches!(error.kind(), ErrorKind::MixedContent { .. }));
+/// assert_eq!(error.path(), Some("/r/a[1]"));
+/// assert_eq!(error.position(), use_xml::Position { line: 2, column: 3 });
 /// ```
 #[derive(Clone, PartialEq, Eq, thiserror::Error)]
 #[error(transparent)]
@@ -76,6 +78,16 @@ impl Error {
     /// Converts the error into its details.
     pub fn into_kind(self) -> ErrorKind {
         *self.0
+    }
+
+    /// Returns the position in the source document. See [`ErrorKind::position`].
+    pub fn position(&self) -> Position {
+        self.0.position()
+    }
+
+    /// Returns the path of the element related to the error. See [`ErrorKind::path`].
+    pub fn path(&self) -> Option<&str> {
+        self.0.path()
     }
 }
 
@@ -251,13 +263,72 @@ pub enum ErrorKind {
     },
 
     /// An item was not used, reported by [`Elem::check_all_used`](crate::Elem::check_all_used).
-    #[error("{item} of element {path} at {position} not used")]
+    ///
+    /// For an unused child name ([`Item::Child`]) the path and the position are those
+    /// of the first child with this name, not of the parent.
+    #[error("{}", unused_message(item, path, position))]
     Unused {
-        /// Path of the element.
+        /// Path of the element whose attribute or text was not used,
+        /// or path of the first unused child.
         path: String,
-        /// Position of the element.
+        /// Position of the element whose attribute or text was not used,
+        /// or position of the first unused child.
         position: Position,
         /// The item which was not used.
         item: Item,
     },
+}
+
+fn unused_message(item: &Item, path: &str, position: &Position) -> String {
+    match item {
+        Item::Child(_) => format!("element {path} at {position} not used"),
+        _ => format!("{item} of element {path} at {position} not used"),
+    }
+}
+
+impl ErrorKind {
+    /// Returns the position in the source document.
+    ///
+    /// It is the position of the problem for [`Xml`](Self::Xml), [`Encoding`](Self::Encoding),
+    /// [`UnexpectedNode`](Self::UnexpectedNode), and [`UnknownEntity`](Self::UnknownEntity),
+    /// the position of the offending child for [`ChildPrefixMismatch`](Self::ChildPrefixMismatch)
+    /// and [`MaxDepthExceeded`](Self::MaxDepthExceeded), and otherwise the position
+    /// of the element given by [`path`](Self::path).
+    pub fn position(&self) -> Position {
+        match self {
+            Self::Xml { position, .. }
+            | Self::Encoding { position, .. }
+            | Self::UnexpectedNode { position, .. }
+            | Self::UnknownEntity { position, .. }
+            | Self::MixedContent { position, .. }
+            | Self::DuplicateAttr { position, .. }
+            | Self::ChildPrefixMismatch { position, .. }
+            | Self::MaxDepthExceeded { position, .. }
+            | Self::Missing { position, .. }
+            | Self::WrongCount { position, .. }
+            | Self::AlreadyUsed { position, .. }
+            | Self::InvalidValue { position, .. }
+            | Self::Unused { position, .. } => *position,
+        }
+    }
+
+    /// Returns the path of the element related to the error, e.g. `/root/items[1]/item[3]`.
+    ///
+    /// Returns `None` for [`Xml`](Self::Xml), [`Encoding`](Self::Encoding),
+    /// and [`UnexpectedNode`](Self::UnexpectedNode), which are not related to an element.
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            Self::Xml { .. } | Self::Encoding { .. } | Self::UnexpectedNode { .. } => None,
+            Self::UnknownEntity { path, .. }
+            | Self::MixedContent { path, .. }
+            | Self::DuplicateAttr { path, .. }
+            | Self::ChildPrefixMismatch { path, .. }
+            | Self::MaxDepthExceeded { path, .. }
+            | Self::Missing { path, .. }
+            | Self::WrongCount { path, .. }
+            | Self::AlreadyUsed { path, .. }
+            | Self::InvalidValue { path, .. }
+            | Self::Unused { path, .. } => Some(path),
+        }
+    }
 }

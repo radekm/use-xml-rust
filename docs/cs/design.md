@@ -144,7 +144,8 @@ Pravidla:
 
 1. nepoužitý atribut (v pořadí jmen),
 2. nepoužitý významný text (text jen z bílých znaků, který nikdo nevyžádal, se nehlásí),
-3. nepoužité jméno dítěte (v pořadí jmen),
+3. nepoužité jméno dítěte (v pořadí jmen); chyba má cestu a pozici
+   prvního dítěte s tímto jménem, ne rodiče,
 4. jinak rekurzivně pokračuje do dětí s použitými jmény (v pořadí jmen, pak v pořadí z dokumentu).
 
 Elementy označené `ignore_all` se přeskakují.
@@ -217,6 +218,10 @@ vztahující se k elementu nese cestu a pozici elementu. Varianty `ErrorKind`:
 - `InvalidValue` – parser hodnoty selhal; obsahuje jméno atributu (nebo text), vstup a zprávu.
   Vstup delší než `MAX_VALUE_CHARS` znaků se zkrátí a končí `…`.
 - `Unused` – hlásí `check_all_used`.
+
+`Error::position()` (a `ErrorKind::position()`) vrací pozici libovolné chyby.
+`Error::path()` (a `ErrorKind::path()`) vrací cestu souvisejícího elementu,
+nebo `None` pro `Xml`, `Encoding` a `UnexpectedNode`.
 
 `AlreadyUsed`, `Missing`, `InvalidValue` a `Unused` obsahují `Item`:
 `Item::Attr(name)`, `Item::Child(name)` nebo `Item::Text`.

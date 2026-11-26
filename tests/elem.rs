@@ -682,11 +682,66 @@ fn unused_element() -> anyhow::Result<()> {
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/company/address[1]".to_owned(),
-            position: pos(2, 5),
+            // The path and the position of the unused child, not of its parent.
+            path: "/company/address[1]/city[1]".to_owned(),
+            position: pos(4, 9),
             item: Item::Child("city".to_owned())
         }
     );
+    Ok(())
+}
+
+#[test]
+fn unused_child_points_to_the_first_child_with_the_name() -> anyhow::Result<()> {
+    let e = parse_str("<r>\n  <b/>\n  <a/>\n  <a/>\n</r>")?;
+    let error = e.check_all_used().unwrap_err();
+    assert_eq!(
+        error,
+        ErrorKind::Unused {
+            path: "/r/a[1]".to_owned(),
+            position: pos(3, 3),
+            item: Item::Child("a".to_owned())
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "element /r/a[1] at line 3, column 3 not used"
+    );
+    e.children("a")?;
+    assert_eq!(
+        e.check_all_used().unwrap_err().to_string(),
+        "element /r/b[1] at line 2, column 3 not used"
+    );
+    Ok(())
+}
+
+#[test]
+fn error_position_and_path() -> anyhow::Result<()> {
+    // Errors related to an element.
+    let e = parse_str("<r>\n  <a x=\"1\"/></r>")?;
+    let a = e.child("a")?;
+    let error = a.attr("y", parse::string).unwrap_err();
+    assert_eq!(
+        (error.path(), error.position()),
+        (Some("/r/a[1]"), pos(2, 3))
+    );
+    assert_eq!(error.kind().path(), Some("/r/a[1]"));
+    assert_eq!(error.kind().position(), pos(2, 3));
+    let error = e.check_all_used().unwrap_err();
+    assert_eq!(
+        (error.path(), error.position()),
+        (Some("/r/a[1]"), pos(2, 3))
+    );
+
+    // Errors not related to an element.
+    let error = parse_str("<r>\n  </b>").unwrap_err();
+    assert_eq!((error.path(), error.position()), (None, pos(2, 3)));
+    let error = parse_str("<a/>\n<b/>").unwrap_err();
+    assert_eq!((error.path(), error.position()), (None, pos(2, 1)));
+
+    // The offending child.
+    let error = parse_str("<r xmlns:p=\"u\"><c/>\n<p:c/></r>").unwrap_err();
+    assert_eq!((error.path(), error.position()), (Some("/r"), pos(2, 1)));
     Ok(())
 }
 

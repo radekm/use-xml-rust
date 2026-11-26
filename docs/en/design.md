@@ -144,7 +144,8 @@ Rules:
 
 1. an unused attribute (in name order),
 2. unused significant text (whitespace-only text that was never requested is not reported),
-3. an unused child name (in name order),
+3. an unused child name (in name order); the error has the path and the position
+   of the first child with this name, not of the parent,
 4. otherwise, it recurses into the children of used names (in name order, then document order).
 
 Elements marked by `ignore_all` are skipped.
@@ -217,6 +218,10 @@ to an element carries the path and position of the element. Variants of `ErrorKi
 - `InvalidValue` – a value parser failed; contains the attribute name (or text), the input, and the message.
   An input longer than `MAX_VALUE_CHARS` characters is cut and ends with `…`.
 - `Unused` – reported by `check_all_used`.
+
+`Error::position()` (and `ErrorKind::position()`) returns the position of any error.
+`Error::path()` (and `ErrorKind::path()`) returns the path of the related element,
+or `None` for `Xml`, `Encoding`, and `UnexpectedNode`.
 
 `AlreadyUsed`, `Missing`, `InvalidValue`, and `Unused` contain an `Item`:
 `Item::Attr(name)`, `Item::Child(name)`, or `Item::Text`.

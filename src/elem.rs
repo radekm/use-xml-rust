@@ -353,7 +353,9 @@ impl Elem {
 
     /// Checks that everything in the element and its descendants was used.
     ///
-    /// Returns [`ErrorKind::Unused`] for the first unused item. Within an element the order is:
+    /// Returns [`ErrorKind::Unused`] for the first unused item. For an unused child name
+    /// the error contains the path and the position of the first child with this name.
+    /// Within an element the order is:
     /// attributes (by name), significant text, child names (by name), and then descendants
     /// of the used child names (by name, then in document order).
     /// Text consisting only of whitespace does not need to be used.
@@ -376,8 +378,15 @@ impl Elem {
         if self.text_significant && !self.text_used.get() {
             return Err(unused(Item::Text));
         }
-        if let Some((name, _)) = self.children.iter().find(|(_, (used, _))| !used.get()) {
-            return Err(unused(Item::Child(name.clone())));
+        if let Some((name, (_, elems))) = self.children.iter().find(|(_, (used, _))| !used.get()) {
+            // A name is in `children` only if there is at least one child with it.
+            let first = elems.first().unwrap_or(self);
+            return Err(ErrorKind::Unused {
+                path: first.path(),
+                position: first.position,
+                item: Item::Child(name.clone()),
+            }
+            .into());
         }
         // Recursion depth is bounded by `MAX_DEPTH`.
         self.children
