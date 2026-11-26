@@ -117,8 +117,8 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
 - Za kořenovým elementem jsou povoleny jen bílé znaky, komentáře a processing instructions.
 - Chybně utvořené XML (neuzavřené nebo nepárové tagy, neplatná syntaxe) je chyba.
 - Hloubka zanoření je omezena `MAX_DEPTH = 256`. Kořenový element má hloubku 1.
-  Element v hloubce 257 je chyba. Parsování nepoužívá rekurzi, takže hluboké dokumenty
-  nemohou přetéct zásobník.
+  Element v hloubce 257 je chyba. Parsování, `ignore_all`, `check_all_used`, formátování cest
+  ani uvolnění stromu nepoužívají rekurzi, takže hluboké dokumenty nemohou přetéct zásobník.
 
 ## Sledování použití
 
@@ -146,7 +146,7 @@ Pravidla:
 2. nepoužitý významný text (text jen z bílých znaků, který nikdo nevyžádal, se nehlásí),
 3. nepoužité jméno dítěte (v pořadí jmen); chyba má cestu a pozici
    prvního dítěte s tímto jménem, ne rodiče,
-4. jinak rekurzivně pokračuje do dětí s použitými jmény (v pořadí jmen, pak v pořadí z dokumentu).
+4. jinak pokračuje do dětí s použitými jmény (v pořadí jmen, pak v pořadí z dokumentu).
 
 Elementy označené `ignore_all` se přeskakují.
 

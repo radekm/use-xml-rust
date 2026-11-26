@@ -117,8 +117,8 @@ Any violation is a parse error, not an error discovered later during extraction.
 - After the root element only whitespace, comments, and processing instructions are allowed.
 - Malformed XML (unclosed or mismatched tags, invalid syntax) is an error.
 - The nesting depth is limited by `MAX_DEPTH = 256`. The root element has depth 1.
-  An element at depth 257 is an error. Parsing does not use recursion, so deep documents
-  cannot overflow the stack.
+  An element at depth 257 is an error. Parsing, `ignore_all`, `check_all_used`, formatting paths,
+  and dropping the tree do not use recursion, so deep documents cannot overflow the stack.
 
 ## Usage tracking
 
@@ -146,7 +146,7 @@ Rules:
 2. unused significant text (whitespace-only text that was never requested is not reported),
 3. an unused child name (in name order); the error has the path and the position
    of the first child with this name, not of the parent,
-4. otherwise, it recurses into the children of used names (in name order, then document order).
+4. otherwise, it continues with the children of used names (in name order, then document order).
 
 Elements marked by `ignore_all` are skipped.
 

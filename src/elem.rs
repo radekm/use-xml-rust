@@ -41,6 +41,19 @@ impl fmt::Display for ElemPath {
     }
 }
 
+// A derived `Drop` would be recursive: dropping the last reference to the path of a deeply nested
+// element drops the paths of all its ancestors, one nested call per level.
+impl Drop for ElemPath {
+    fn drop(&mut self) {
+        let mut parent = self.parent.take();
+        // `Arc::into_inner` returns the node only if this was its last reference.
+        // The node is then dropped with `parent` set to `None`, so this loop does not recurse.
+        while let Some(mut node) = parent.and_then(Arc::into_inner) {
+            parent = node.parent.take();
+        }
+    }
+}
+
 impl fmt::Debug for ElemPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ElemPath({self})")
@@ -99,6 +112,31 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.0.clone()).finish()
+    }
+}
+
+// A derived `Drop` would be recursive, one nested call per level of the tree.
+// Even with `MAX_DEPTH` it needed hundreds of kilobytes of stack in debug builds.
+impl Drop for Elem {
+    fn drop(&mut self) {
+        // Only maps of children are moved to the stack, the elements stay in their vectors.
+        // When a vector is dropped, the children of its elements have already been taken,
+        // so their own `drop` returns immediately and does not recurse.
+        let mut stack = Vec::new();
+        let mut children = std::mem::take(&mut self.children);
+        loop {
+            for (_, (_, mut elems)) in children {
+                for elem in &mut elems {
+                    if !elem.children.is_empty() {
+                        stack.push(std::mem::take(&mut elem.children));
+                    }
+                }
+            }
+            match stack.pop() {
+                Some(next) => children = next,
+                None => break,
+            }
+        }
     }
 }
 
@@ -359,10 +397,46 @@ impl Elem {
     /// attributes (by name), significant text, child names (by name), and then descendants
     /// of the used child names (by name, then in document order).
     /// Text consisting only of whitespace does not need to be used.
+    /// Elements marked by [`Elem::ignore_all`] are skipped.
+    ///
+    /// The traversal does not use recursion, so it does not need much stack
+    /// even for documents nested [`MAX_DEPTH`](crate::MAX_DEPTH) levels deep.
+    ///
+    /// ```
+    /// use use_xml::{ErrorKind, Item};
+    ///
+    /// let root = use_xml::parse_str(r#"<r><a x="1"/></r>"#)?;
+    /// root.child("a")?;
+    /// let error = root.check_all_used().unwrap_err();
+    /// assert_eq!(error.path(), Some("/r/a[1]"));
+    /// assert!(matches!(error.kind(), ErrorKind::Unused { item: Item::Attr(name), .. } if name == "x"));
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::Unused`] for the first unused item.
     pub fn check_all_used(&self) -> Result<(), Error> {
-        if self.all_used.get() {
-            return Ok(());
+        // Depth-first traversal without recursion. Children are pushed in reverse order,
+        // so they are popped by name and then in document order.
+        let mut stack = vec![self];
+        while let Some(elem) = stack.pop() {
+            if elem.all_used.get() {
+                continue;
+            }
+            elem.check_own_items_used()?;
+            stack.extend(
+                elem.children
+                    .values()
+                    .rev()
+                    .flat_map(|(_, elems)| elems.iter().rev()),
+            );
         }
+        Ok(())
+    }
+
+    /// Checks the attributes, the text, and the child names of this element, not its descendants.
+    fn check_own_items_used(&self) -> Result<(), Error> {
         let unused = |item| {
             ErrorKind::Unused {
                 path: self.path(),
@@ -388,10 +462,6 @@ impl Elem {
             }
             .into());
         }
-        // Recursion depth is bounded by `MAX_DEPTH`.
-        self.children
-            .values()
-            .flat_map(|(_, elems)| elems)
-            .try_for_each(Elem::check_all_used)
+        Ok(())
     }
 }
