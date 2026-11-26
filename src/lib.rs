@@ -1,6 +1,6 @@
 //! Extract data from XML documents and check that nothing was left unused.
 //!
-//! The document is parsed by [`parse_str`] into a tree of [`Elem`] values.
+//! The document is parsed by [`parse_str`] or [`parse_bytes`] into a tree of [`Elem`] values.
 //! Attributes, children, and text are requested with methods of [`Elem`]
 //! and converted by value parsers from the [`parse`] module (or any function
 //! `Fn(&str) -> Result<T, E>`). Every item can be used only once.
@@ -36,6 +36,6 @@ mod elem;
 mod error;
 pub mod parse;
 
-pub use document::{MAX_DEPTH, parse_str};
+pub use document::{MAX_DEPTH, parse_bytes, parse_str};
 pub use elem::Elem;
 pub use error::{Error, Item, Position};

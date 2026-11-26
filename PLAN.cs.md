@@ -27,7 +27,9 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
       `decimal_non_negative`, `bool`, `date_time_utc`, `map`, `validate`.
 - [x] 7. Testy převzaté z UseData.Xml a testy pro každé pravidlo a chybu z návrhu.
 - [ ] 8. Dokumentace: doc komentáře s příklady, příklad použití v README, `cargo doc` bez varování.
-- [ ] 9. Volitelně: parser z `std::io::BufRead` / bajtů, benchmark (jen pokud o to správce stojí).
+- [x] 9. Parser z bajtů (`parse_bytes`, jen UTF-8). `std::io::BufRead` se neplánuje,
+      protože je synchronní.
+- [ ] 10. Volitelně: benchmark (jen pokud o to správce stojí).
 
 ## Rozhodnutí
 

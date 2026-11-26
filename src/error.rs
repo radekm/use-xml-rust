@@ -54,6 +54,15 @@ pub enum Error {
         position: Position,
     },
 
+    /// The input is not valid UTF-8 or declares an unsupported encoding.
+    #[error("unsupported encoding at {position}: {message}")]
+    Encoding {
+        /// Description of the problem.
+        message: String,
+        /// Where the problem was detected.
+        position: Position,
+    },
+
     /// A node which is not allowed at the given place,
     /// e.g. `DOCTYPE` or text outside of the root element.
     #[error("unexpected {node} at {position}")]

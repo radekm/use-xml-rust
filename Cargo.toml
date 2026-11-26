@@ -2,6 +2,8 @@
 name = "use-xml"
 version = "0.1.0"
 edition = "2024"
+authors = ["Radek Micek"]
+license = "Zlib"
 description = "Extract data from XML documents and check that nothing was left unused."
 repository = "https://github.com/radekm/use-xml-rust"
 

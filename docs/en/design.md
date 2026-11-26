@@ -86,6 +86,12 @@ Any violation is a parse error, not an error discovered later during extraction.
 
 ### Document
 
+- `parse_str(&str)` parses an already decoded document; the encoding in the XML declaration is ignored.
+- `parse_bytes(&[u8])` parses a document encoded in UTF-8. Other encodings are not supported:
+  a UTF-16 byte order mark, an encoding other than UTF-8 in the XML declaration (case-insensitive),
+  or invalid UTF-8 result in an `Encoding` error.
+- A leading byte order mark is skipped.
+
 - Before the root element only the XML declaration, whitespace, comments, and processing instructions
   are allowed. Anything else (including `DOCTYPE`) is an error.
 - After the root element only whitespace, comments, and processing instructions are allowed.
@@ -127,6 +133,7 @@ Elements marked by `ignore_all` are skipped.
 
 ```rust
 let root = use_xml::parse_str(xml)?;           // Result<Elem, Error>
+let root = use_xml::parse_bytes(bytes)?;       // Result<Elem, Error>, UTF-8 only
 
 root.name();                                   // &str – local name
 root.position();                               // Position
@@ -169,6 +176,7 @@ The library has one error type `Error` (made with `thiserror`). Every error rela
 to an element carries the path and position of the element. Variants:
 
 - `Xml` – malformed XML (from `quick-xml`), with position.
+- `Encoding` – invalid UTF-8 or an unsupported encoding (only from `parse_bytes`).
 - `UnexpectedNode` – e.g. `DOCTYPE`, a second root element, or text outside the root element.
 - `UnknownEntity` – an entity reference which is neither predefined nor a character reference.
 - `MixedContent`

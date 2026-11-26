@@ -31,3 +31,7 @@ root.check_all_used()?;
 - [Design](docs/en/design.md)
 - [Plan](PLAN.md)
 - [Rules for contributors and agents](AGENTS.md)
+
+## License
+
+[zlib](LICENSE), Copyright (c) 2026 Radek Micek.

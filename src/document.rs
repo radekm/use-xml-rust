@@ -131,6 +131,8 @@ struct Parser<'a> {
     tracker: PositionTracker<'a>,
     stack: Vec<Builder>,
     root: Option<Elem>,
+    /// Whether the encoding in the XML declaration must be UTF-8.
+    check_encoding: bool,
 }
 
 /// Parses an XML document into a tree of elements and returns the root element.
@@ -138,6 +140,9 @@ struct Parser<'a> {
 /// All structural rules (see the design documentation) are checked here:
 /// mixed content, duplicate attributes, children with different prefixes,
 /// `DOCTYPE`, unknown entities, and [`MAX_DEPTH`].
+///
+/// A leading byte order mark is skipped. The encoding in the XML declaration is ignored
+/// because the input is already decoded.
 ///
 /// ```
 /// let root = use_xml::parse_str("<animals><dog>A</dog><dog>D</dog></animals>")?;
@@ -150,6 +155,47 @@ struct Parser<'a> {
 ///
 /// Returns an error if the document is not well-formed or violates a structural rule.
 pub fn parse_str(input: &str) -> Result<Elem, Error> {
+    parse(input, false)
+}
+
+/// Parses an XML document encoded in UTF-8 into a tree of elements and returns the root element.
+///
+/// A leading UTF-8 byte order mark is skipped. Other encodings are not supported:
+/// a UTF-16 byte order mark, an encoding other than UTF-8 in the XML declaration,
+/// or invalid UTF-8 result in [`Error::Encoding`]. Otherwise it behaves like [`parse_str`].
+///
+/// ```
+/// let root = use_xml::parse_bytes(b"<?xml version='1.0' encoding='UTF-8'?><a x='1'/>")?;
+/// assert_eq!(root.attr("x", use_xml::parse::u8)?, 1);
+/// # Ok::<(), use_xml::Error>(())
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the input is not UTF-8, the document is not well-formed,
+/// or it violates a structural rule.
+pub fn parse_bytes(input: &[u8]) -> Result<Elem, Error> {
+    let start = Position { line: 1, column: 1 };
+    if input.starts_with(&[0xFF, 0xFE]) || input.starts_with(&[0xFE, 0xFF]) {
+        return Err(Error::Encoding {
+            message: "UTF-16 is not supported".to_owned(),
+            position: start,
+        });
+    }
+    let input = input.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(input);
+    let input = std::str::from_utf8(input).map_err(|e| {
+        // The prefix up to `valid_up_to` is valid UTF-8.
+        let valid = std::str::from_utf8(&input[..e.valid_up_to()]).unwrap_or_default();
+        Error::Encoding {
+            message: "invalid UTF-8".to_owned(),
+            position: PositionTracker::new(valid).position_at(valid.len() as u64),
+        }
+    })?;
+    parse(input, true)
+}
+
+fn parse(input: &str, check_encoding: bool) -> Result<Elem, Error> {
+    let input = input.strip_prefix('\u{FEFF}').unwrap_or(input);
     let mut reader = Reader::from_str(input);
     let config = reader.config_mut();
     config.enable_all_checks(true);
@@ -161,6 +207,7 @@ pub fn parse_str(input: &str) -> Result<Elem, Error> {
         tracker: PositionTracker::new(input),
         stack: Vec::new(),
         root: None,
+        check_encoding,
     };
     parser.run()
 }
@@ -237,9 +284,22 @@ impl<'a> Parser<'a> {
                     };
                     self.add_text(&resolved, false, offset, "entity reference")?;
                 }
-                Event::Decl(_) => {
+                Event::Decl(decl) => {
                     if !is_first {
                         return Err(self.unexpected("XML declaration", offset));
+                    }
+                    if self.check_encoding {
+                        match decl.encoding() {
+                            None => {}
+                            Some(Ok(encoding)) if encoding.eq_ignore_ascii_case("utf-8") => {}
+                            Some(Ok(encoding)) => {
+                                return Err(Error::Encoding {
+                                    message: format!("encoding `{encoding}` is not supported"),
+                                    position: self.tracker.position_at(offset),
+                                });
+                            }
+                            Some(Err(e)) => return Err(self.xml_error(e.to_string(), offset)),
+                        }
                     }
                 }
                 Event::DocType(_) => return Err(self.unexpected("DOCTYPE", offset)),

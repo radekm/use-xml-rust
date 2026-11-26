@@ -86,6 +86,12 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
 
 ### Dokument
 
+- `parse_str(&str)` parsuje již dekódovaný dokument; kódování v XML deklaraci se ignoruje.
+- `parse_bytes(&[u8])` parsuje dokument v kódování UTF-8. Jiná kódování podporovaná nejsou:
+  UTF-16 byte order mark, jiné kódování než UTF-8 v XML deklaraci (bez ohledu na velikost písmen)
+  nebo neplatné UTF-8 vedou na chybu `Encoding`.
+- Byte order mark na začátku se přeskakuje.
+
 - Před kořenovým elementem je povolena jen XML deklarace, bílé znaky, komentáře a processing instructions.
   Cokoli jiného (včetně `DOCTYPE`) je chyba.
 - Za kořenovým elementem jsou povoleny jen bílé znaky, komentáře a processing instructions.
@@ -127,6 +133,7 @@ Elementy označené `ignore_all` se přeskakují.
 
 ```rust
 let root = use_xml::parse_str(xml)?;           // Result<Elem, Error>
+let root = use_xml::parse_bytes(bytes)?;       // Result<Elem, Error>, jen UTF-8
 
 root.name();                                   // &str – local name
 root.position();                               // Position
@@ -169,6 +176,7 @@ Knihovna má jeden typ chyby `Error` (vytvořený pomocí `thiserror`). Každá 
 vztahující se k elementu nese cestu a pozici elementu. Varianty:
 
 - `Xml` – chybně utvořené XML (z `quick-xml`), s pozicí.
+- `Encoding` – neplatné UTF-8 nebo nepodporované kódování (jen z `parse_bytes`).
 - `UnexpectedNode` – např. `DOCTYPE`, druhý kořenový element nebo text mimo kořenový element.
 - `UnknownEntity` – odkaz na entitu, která není předdefinovaná ani znaková reference.
 - `MixedContent`

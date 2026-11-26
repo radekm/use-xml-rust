@@ -31,3 +31,7 @@ root.check_all_used()?;
 - [Návrh](docs/cs/design.md)
 - [Plán](PLAN.cs.md)
 - [Pravidla pro přispěvatele a agenty](AGENTS.cs.md)
+
+## Licence
+
+[zlib](LICENSE), Copyright (c) 2026 Radek Micek.
