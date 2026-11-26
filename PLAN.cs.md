@@ -26,7 +26,7 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
 - [x] 6. Modul `parse`: řetězce, `one_of`, `enumeration`, celá čísla, `decimal`,
       `decimal_non_negative`, `bool`, `date_time_utc`, `map`, `validate`.
 - [x] 7. Testy převzaté z UseData.Xml a testy pro každé pravidlo a chybu z návrhu.
-- [ ] 8. Dokumentace: doc komentáře s příklady, příklad použití v README, `cargo doc` bez varování.
+- [x] 8. Dokumentace: doc komentáře s příklady, příklad použití v README, `cargo doc` bez varování.
 - [x] 9. Parser z bajtů (`parse_bytes`, jen UTF-8). `std::io::BufRead` se neplánuje,
       protože je synchronní.
 - [x] 10. Benchmark převzatý z UseData.Xml pomocí criterion (`cargo bench`, viz `benches/`).

@@ -26,7 +26,7 @@ A Rust library for extracting data from XML, modeled on
 - [x] 6. The `parse` module: strings, `one_of`, `enumeration`, integers, `decimal`,
       `decimal_non_negative`, `bool`, `date_time_utc`, `map`, `validate`.
 - [x] 7. Tests ported from UseData.Xml plus tests for every rule and error in the design.
-- [ ] 8. Documentation: doc comments with examples, README usage example, `cargo doc` without warnings.
+- [x] 8. Documentation: doc comments with examples, README usage example, `cargo doc` without warnings.
 - [x] 9. A parser from bytes (`parse_bytes`, UTF-8 only). `std::io::BufRead` is not planned
       because it is synchronous.
 - [x] 10. Benchmark ported from UseData.Xml using criterion (`cargo bench`, see `benches/`).
