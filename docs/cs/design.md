@@ -99,7 +99,8 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
   neplatná jména (např. `<1/>`, `<a 1="x"/>`), jména, která nejsou správně utvořená
   vzhledem ke jmenným prostorům (např. `<a:/>` má prázdné local name, `<a:b:c/>` má local name `b:c`),
   `<` v hodnotách atributů, obsah XML deklarace (např. chybějící `version`),
-  zakázané znaky (řídicí znaky, i ze znakových referencí jako `&#1;`)
+  zakázané znaky (řídicí znaky, i ze znakových referencí jako `&#1;`;
+  odmítnou se jen znakové reference na `0`, na surrogáty a nad `U+10FFFF`)
   a `]]>` v textu. Jde o omezení `quick-xml`, ne o pravidla této knihovny.
 
 ### Dokument
@@ -203,6 +204,8 @@ vztahující se k elementu nese cestu a pozici elementu. Varianty `ErrorKind`:
 - `Encoding` – neplatné UTF-8 nebo nepodporované kódování (jen z `parse_bytes`).
 - `UnexpectedNode` – např. `DOCTYPE`, druhý kořenový element nebo text mimo kořenový element.
 - `UnknownEntity` – odkaz na entitu, která není předdefinovaná ani znaková reference.
+  Jeho pozice (stejně jako pozice chyby `Xml` způsobené neplatnou referencí)
+  ukazuje na `&` reference, i uvnitř hodnoty atributu.
 - `MixedContent`
 - `DuplicateAttr` – atributy se stejným local name.
 - `ChildPrefixMismatch` – děti se stejným local name, ale různými prefixy

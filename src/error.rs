@@ -106,6 +106,8 @@ impl PartialEq<ErrorKind> for Error {
 #[non_exhaustive]
 pub enum ErrorKind {
     /// The document is not well-formed XML.
+    ///
+    /// An invalid reference in an attribute value points to the `&` of the reference.
     #[error("malformed XML at {position}: {message}")]
     Xml {
         /// Description of the problem.
@@ -140,7 +142,7 @@ pub enum ErrorKind {
         name: String,
         /// Path of the element containing the reference.
         path: String,
-        /// Position of the reference, or of the element for a reference in an attribute value.
+        /// Position of the reference (also inside an attribute value).
         position: Position,
     },
 

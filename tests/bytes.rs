@@ -133,3 +133,22 @@ fn invalid_utf8_is_rejected() {
         }
     );
 }
+
+#[test]
+fn syntax_errors_in_declaration_have_exact_positions() {
+    assert_eq!(
+        parse_bytes(b"<?xml version='1.0' encoding=utf-8?><a/>").unwrap_err(),
+        ErrorKind::Xml {
+            message: "attribute value must be enclosed in `\"` or `'`".to_owned(),
+            position: pos(1, 30)
+        }
+    );
+    // The closing quote is expected at the end of the declaration, before `?>`.
+    assert_eq!(
+        parse_bytes(b"\xEF\xBB\xBF<?xml version='1.0' encoding='utf-8?><a/>").unwrap_err(),
+        ErrorKind::Xml {
+            message: "missing closing quote `'` in attribute value".to_owned(),
+            position: pos(1, 36)
+        }
+    );
+}

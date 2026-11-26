@@ -218,6 +218,18 @@ fn detect_unsupported_encoding(input: &[u8]) -> Option<&'static str> {
         .map(|(_, encoding)| *encoding)
 }
 
+/// Returns the byte index of the first reference in the raw attribute value `raw`
+/// which is not closed by `;` or cannot be resolved.
+fn first_invalid_reference(raw: &str) -> Option<usize> {
+    raw.match_indices('&').map(|(i, _)| i).find(|&i| {
+        match raw[i..].find(';') {
+            None => true,
+            // `i` and `i + end` are indices of ASCII characters, so the slice is valid.
+            Some(end) => quick_xml::escape::unescape(&raw[i..=i + end]).is_err(),
+        }
+    })
+}
+
 /// Parses `input`. A leading byte order mark is removed by `quick-xml`.
 fn parse(input: &str, check_encoding: bool) -> Result<Elem, Error> {
     let mut reader = Reader::from_str(input);
@@ -245,8 +257,10 @@ impl<'a> Parser<'a> {
         .into()
     }
 
-    /// Converts an error in the attribute list of the tag starting at `tag_offset`.
-    fn attr_error(&mut self, error: AttrError, tag_offset: u64) -> Error {
+    /// Converts an error in an attribute list. `content_offset` is the offset of the content
+    /// to which positions in `AttrError` are relative: the byte after `<` for a start tag
+    /// and the byte after `<?` for the XML declaration.
+    fn attr_error(&mut self, error: AttrError, content_offset: u64) -> Error {
         let (relative, message) = match error {
             AttrError::ExpectedEq(pos) => (
                 pos,
@@ -268,8 +282,54 @@ impl<'a> Parser<'a> {
             ),
             AttrError::Duplicated(pos, _) => (pos, "duplicated attribute".to_owned()),
         };
-        // Positions in `AttrError` are relative to the tag name, i.e. to the byte after `<`.
-        self.xml_error(message, tag_offset + 1 + relative as u64)
+        self.xml_error(message, content_offset + relative as u64)
+    }
+
+    /// Returns the offset of `value` in the input if `value` is a part of the input.
+    ///
+    /// `quick-xml` reading from a `&str` returns attribute values which borrow the input,
+    /// so their offset can be computed from their address.
+    fn offset_in_input(&self, value: &str) -> Option<u64> {
+        let input = self.tracker.input;
+        let offset = value.as_ptr().addr().checked_sub(input.as_ptr().addr())?;
+        (offset + value.len() <= input.len()).then_some(offset as u64)
+    }
+
+    /// Converts an error of the normalization of the attribute value `raw`.
+    ///
+    /// The error points to the first invalid reference in `raw`. If it cannot be found,
+    /// the error points to the element at `element_position`.
+    fn attr_value_error(
+        &mut self,
+        error: quick_xml::Error,
+        raw: &str,
+        path: &ElemPath,
+        element_position: Position,
+    ) -> Error {
+        let position = self
+            .offset_in_input(raw)
+            .and_then(|value_offset| first_invalid_reference(raw).map(|i| value_offset + i as u64))
+            .map_or(element_position, |offset| self.tracker.position_at(offset));
+        match error {
+            quick_xml::Error::Escape(EscapeError::UnrecognizedEntity(_, name)) => {
+                ErrorKind::UnknownEntity {
+                    name,
+                    path: path.to_string(),
+                    position,
+                }
+            }
+            // The message of `quick-xml` contains a byte range in the value, which is confusing
+            // next to the position in the document.
+            quick_xml::Error::Escape(EscapeError::UnterminatedEntity(_)) => ErrorKind::Xml {
+                message: "entity or character reference not closed: `;` not found".to_owned(),
+                position,
+            },
+            e => ErrorKind::Xml {
+                message: e.to_string(),
+                position,
+            },
+        }
+        .into()
     }
 
     fn unexpected(&mut self, node: &str, offset: u64) -> Error {
@@ -363,7 +423,8 @@ impl<'a> Parser<'a> {
                                 }
                                 .into());
                             }
-                            Some(Err(e)) => return Err(self.xml_error(e.to_string(), offset)),
+                            // Positions in `AttrError` are relative to the byte after `<?`.
+                            Some(Err(e)) => return Err(self.attr_error(e, offset + 2)),
                         }
                     }
                 }
@@ -464,7 +525,8 @@ impl<'a> Parser<'a> {
         // Duplicates are detected below by local name, which also covers equal qualified names.
         attributes.with_checks(false);
         for attr in attributes {
-            let attr = attr.map_err(|e| self.attr_error(e, offset))?;
+            // Positions in `AttrError` are relative to the byte after `<`.
+            let attr = attr.map_err(|e| self.attr_error(e, offset + 1))?;
             let (attr_local, attr_prefix) = attr.key.decompose();
             let attr_local: &str = attr_local.as_ref();
             let is_namespace_decl = match &attr_prefix {
@@ -474,25 +536,10 @@ impl<'a> Parser<'a> {
             if is_namespace_decl {
                 continue;
             }
-            let value = attr
-                .normalized_value(XmlVersion::Implicit1_0)
-                .map_err(|e| -> Error {
-                    match e {
-                        quick_xml::Error::Escape(EscapeError::UnrecognizedEntity(_, name)) => {
-                            ErrorKind::UnknownEntity {
-                                name,
-                                path: path.to_string(),
-                                position,
-                            }
-                            .into()
-                        }
-                        e => ErrorKind::Xml {
-                            message: e.to_string(),
-                            position,
-                        }
-                        .into(),
-                    }
-                })?;
+            let value = match attr.normalized_value(XmlVersion::Implicit1_0) {
+                Ok(value) => value,
+                Err(e) => return Err(self.attr_value_error(e, &attr.value, &path, position)),
+            };
             if attrs
                 .insert(
                     attr_local.to_owned(),

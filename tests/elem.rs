@@ -807,9 +807,56 @@ fn unknown_entity_in_attribute() {
         ErrorKind::UnknownEntity {
             name: "nbsp".to_owned(),
             path: "/r/a[1]".to_owned(),
-            position: pos(2, 3)
+            // Points to `&` in the attribute value.
+            position: pos(2, 9)
         }
     );
+}
+
+#[test]
+fn invalid_references_point_to_the_reference() {
+    let xml = |message: &str, position| ErrorKind::Xml {
+        message: message.to_owned(),
+        position,
+    };
+    let not_closed = "entity or character reference not closed: `;` not found";
+    let cases = [
+        // In attribute values, also after other references and multibyte characters.
+        (
+            "<r>\n <a y='1' x='ab&#xZZ;'/></r>",
+            xml(
+                "invalid character reference: invalid digit found in string",
+                pos(2, 16),
+            ),
+        ),
+        (
+            "<a x='čč&amp;&#0;'/>",
+            xml(
+                "invalid character reference: 0x0 character is not permitted in XML",
+                pos(1, 14),
+            ),
+        ),
+        ("<a x='a\r\nb &x'/>", xml(not_closed, pos(2, 3))),
+        ("<a x='&amp'/>", xml(not_closed, pos(1, 7))),
+        // In text.
+        (
+            "<r>\n <a>&#xZZ;</a></r>",
+            xml(
+                "invalid character reference: invalid digit found in string",
+                pos(2, 5),
+            ),
+        ),
+        (
+            "<a>a & b</a>",
+            xml(
+                "ill-formed document: entity or character reference not closed: `;` not found before end of input",
+                pos(1, 6),
+            ),
+        ),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(parse_str(input).unwrap_err(), expected, "{input:?}");
+    }
 }
 
 #[test]

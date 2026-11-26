@@ -99,7 +99,8 @@ Any violation is a parse error, not an error discovered later during extraction.
   invalid names (e.g. `<1/>`, `<a 1="x"/>`), names which are not namespace-well-formed
   (e.g. `<a:/>` has an empty local name, `<a:b:c/>` has the local name `b:c`),
   `<` in attribute values, the content of the XML declaration (e.g. a missing `version`),
-  forbidden characters (control characters, also from character references like `&#1;`),
+  forbidden characters (control characters, also from character references like `&#1;`;
+  only character references to `0`, to surrogates, and above `U+10FFFF` are rejected),
   and `]]>` in text. This is a limitation of `quick-xml`, not of this library's rules.
 
 ### Document
@@ -203,6 +204,8 @@ to an element carries the path and position of the element. Variants of `ErrorKi
 - `Encoding` – invalid UTF-8 or an unsupported encoding (only from `parse_bytes`).
 - `UnexpectedNode` – e.g. `DOCTYPE`, a second root element, or text outside the root element.
 - `UnknownEntity` – an entity reference which is neither predefined nor a character reference.
+  Its position (as well as the position of an `Xml` error caused by an invalid reference)
+  points to the `&` of the reference, also inside an attribute value.
 - `MixedContent`
 - `DuplicateAttr` – attributes with the same local name.
 - `ChildPrefixMismatch` – children with the same local name but different prefixes
