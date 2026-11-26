@@ -17,6 +17,7 @@ Celý dokument se naparsuje do stromu hodnot `Elem`:
 ```rust
 pub struct Elem {
     local_name: String,
+    path: Arc<ElemPath>,                      // Pro chybové hlášky, např. `/root/items[1]/item[3]`.
     position: Position,                       // Řádek a sloupec počátečního tagu.
     attrs: BTreeMap<String, String>,          // Klíčem je local name.
     attrs_used: RefCell<BTreeSet<String>>,
@@ -36,6 +37,11 @@ pub struct Position {
     pub column: u32, // Od 1, počítáno v Unicode scalar values.
 }
 ```
+
+`ElemPath` je uzel spojového seznamu `{ parent: Option<Arc<ElemPath>>, name, index }`
+sdílený mezi elementem a jeho potomky, takže každý element stojí jen jednu malou alokaci.
+Cesta se formátuje jako XPath: kořen bez indexu, ostatní elementy s indexem od 1
+mezi sourozenci se stejným local name, např. `/root/items[1]/item[3]`.
 
 Všechny metody API berou `&self`. Použití se sleduje vnitřní mutabilitou (`Cell`, `RefCell`),
 takže uživatel může držet reference na více dětí a přitom číst atributy rodiče.
@@ -137,13 +143,23 @@ kontextem (jméno elementu, pozice, jméno atributu nebo „text“, vstupní ho
 Modul `parse` nabízí hotové parsery převzaté z originálu:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
 celočíselné typy (`i32`, `u32`, `i64`, `u64`, …), `decimal` (`rust_decimal::Decimal`),
-`decimal_non_negative`, `bool` a `date_time_utc` (`time::OffsetDateTime`).
+`decimal_non_negative`, `bool`, `date_time_utc` a `date_time_offset` (oba `time::OffsetDateTime`).
 Pomocné funkce `map` / `validate` parsery kombinují.
+
+Formáty hodnot (všechny striktní, bez bílých znaků okolo):
+
+- Celá čísla: rustové `from_str` – číslice s volitelným `+` nebo `-` na začátku.
+- `decimal`: volitelné `+` nebo `-` na začátku, číslice, volitelně `.` následovaná číslicemi.
+  Žádný exponent ani oddělovače tisíců.
+- `bool`: přesně `true` nebo `false`.
+- `date_time_utc`: `YYYY-MM-DDTHH:MM:SS[.fffffffff]Z`; místo `T` lze použít mezeru;
+  zlomek sekund má 1–9 číslic; jako offset se přijímá pouze `Z`.
+- `date_time_offset`: totéž, ale offset je `Z` nebo `+HH:MM` / `-HH:MM`.
 
 ## Chyby
 
 Knihovna má jeden typ chyby `Error` (vytvořený pomocí `thiserror`). Každá chyba nese
-local name a pozici elementu, ke kterému se vztahuje. Plánované varianty:
+cestu a pozici elementu, ke kterému se vztahuje. Plánované varianty:
 
 - `Xml` – chybně utvořené XML (z `quick-xml`), s pozicí.
 - `UnexpectedNode` – např. `DOCTYPE` nebo text mimo kořenový element.

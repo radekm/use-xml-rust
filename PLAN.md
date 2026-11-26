@@ -29,15 +29,17 @@ A Rust library for extracting data from XML, modeled on
 - [ ] 8. Documentation: doc comments with examples, README usage example, `cargo doc` without warnings.
 - [ ] 9. Optional: a parser from `std::io::BufRead` / bytes, benchmark (only if the maintainer wants it).
 
+## Decisions
+
+1. Integers are parsed strictly with Rust `from_str` (optional `+`/`-`, no whitespace).
+2. `bool` accepts only `true` and `false`.
+3. `date_time_utc` accepts `YYYY-MM-DDTHH:MM:SSZ` (or a space instead of `T`)
+   with an optional fraction of 1–9 digits, and only the `Z` offset.
+   A separate parser `date_time_offset` parses date times with an offset.
+4. `decimal` is strict: an optional leading sign and an optional decimal point only
+   (no exponent, no thousands separators, no whitespace).
+5. Errors contain the element path (e.g. `/root/items[1]/item[3]`) in addition to line and column.
+
 ## Open questions
 
-1. Integer parsing: strict Rust `from_str` (optional `+`/`-`, no whitespace),
-   or .NET-like behavior allowing surrounding whitespace?
-2. `bool`: accept only `true`/`false`, or also XML Schema `1`/`0`,
-   or case-insensitive like .NET (`True`)?
-3. `date_time_utc`: the original accepts `YYYY-MM-DDTHH:MM:SSZ` (or a space instead of `T`)
-   with 1–7 fractional digits. Keep 7, or allow up to 9 (nanoseconds)?
-   Should other offsets than `Z` be accepted?
-4. `decimal`: the original allows only an optional leading sign and a decimal point
-   (no exponent, no thousands separators, no whitespace). Keep this strictly?
-5. Should errors also contain the element path (e.g. `/root/items/item[3]`) in addition to line and column?
+None at the moment.

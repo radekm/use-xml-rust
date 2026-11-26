@@ -29,15 +29,17 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
 - [ ] 8. Dokumentace: doc komentáře s příklady, příklad použití v README, `cargo doc` bez varování.
 - [ ] 9. Volitelně: parser z `std::io::BufRead` / bajtů, benchmark (jen pokud o to správce stojí).
 
+## Rozhodnutí
+
+1. Celá čísla se parsují striktně rustovým `from_str` (volitelné `+`/`-`, žádné bílé znaky).
+2. `bool` přijímá pouze `true` a `false`.
+3. `date_time_utc` přijímá `YYYY-MM-DDTHH:MM:SSZ` (nebo mezeru místo `T`)
+   s volitelným zlomkem sekund o 1–9 číslicích a pouze offset `Z`.
+   Samostatný parser `date_time_offset` parsuje datum a čas s offsetem.
+4. `decimal` je striktní: pouze volitelné znaménko na začátku a volitelná desetinná tečka
+   (žádný exponent, oddělovače tisíců ani bílé znaky).
+5. Chyby kromě řádku a sloupce obsahují i cestu k elementu (např. `/root/items[1]/item[3]`).
+
 ## Otevřené otázky
 
-1. Parsování celých čísel: striktní rustové `from_str` (volitelné `+`/`-`, žádné bílé znaky),
-   nebo chování jako v .NET, které povoluje bílé znaky okolo?
-2. `bool`: přijímat jen `true`/`false`, nebo i `1`/`0` podle XML Schema,
-   nebo bez ohledu na velikost písmen jako .NET (`True`)?
-3. `date_time_utc`: originál přijímá `YYYY-MM-DDTHH:MM:SSZ` (nebo mezeru místo `T`)
-   s 1–7 desetinnými místy. Ponechat 7, nebo povolit až 9 (nanosekundy)?
-   Přijímat i jiné offsety než `Z`?
-4. `decimal`: originál povoluje jen volitelné znaménko na začátku a desetinnou tečku
-   (žádný exponent, oddělovače tisíců ani bílé znaky). Zachovat to striktně?
-5. Mají chyby kromě řádku a sloupce obsahovat i cestu k elementu (např. `/root/items/item[3]`)?
+Momentálně žádné.

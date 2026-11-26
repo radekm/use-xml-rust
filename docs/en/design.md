@@ -17,6 +17,7 @@ The whole document is parsed into a tree of `Elem` values:
 ```rust
 pub struct Elem {
     local_name: String,
+    path: Arc<ElemPath>,                      // For error messages, e.g. `/root/items[1]/item[3]`.
     position: Position,                       // Line and column of the start tag.
     attrs: BTreeMap<String, String>,          // Key is the local name.
     attrs_used: RefCell<BTreeSet<String>>,
@@ -36,6 +37,11 @@ pub struct Position {
     pub column: u32, // 1-based, counted in Unicode scalar values.
 }
 ```
+
+`ElemPath` is a node of a linked list `{ parent: Option<Arc<ElemPath>>, name, index }`
+shared between an element and its descendants, so each element costs only one small allocation.
+The path is formatted like XPath: the root without an index, other elements with a 1-based index
+among siblings with the same local name, e.g. `/root/items[1]/item[3]`.
 
 All API methods take `&self`. Usage is tracked with interior mutability (`Cell`, `RefCell`),
 so a user can hold references to several children and still read the parent's attributes.
@@ -137,13 +143,23 @@ with context (element name, position, attribute name or "text", input value).
 The `parse` module provides ready-made parsers, ported from the original:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
 integer types (`i32`, `u32`, `i64`, `u64`, …), `decimal` (`rust_decimal::Decimal`),
-`decimal_non_negative`, `bool`, and `date_time_utc` (`time::OffsetDateTime`).
+`decimal_non_negative`, `bool`, `date_time_utc`, and `date_time_offset` (both `time::OffsetDateTime`).
 Helpers `map` / `validate` combine parsers.
+
+Value formats (all strict, no surrounding whitespace):
+
+- Integers: Rust `from_str` – digits with an optional leading `+` or `-`.
+- `decimal`: an optional leading `+` or `-`, digits, an optional `.` followed by digits.
+  No exponent, no thousands separators.
+- `bool`: exactly `true` or `false`.
+- `date_time_utc`: `YYYY-MM-DDTHH:MM:SS[.fffffffff]Z`; a space may be used instead of `T`;
+  the fraction has 1–9 digits; only `Z` is accepted as the offset.
+- `date_time_offset`: the same, but the offset is `Z` or `+HH:MM` / `-HH:MM`.
 
 ## Errors
 
 The library has one error type `Error` (made with `thiserror`). Every error carries
-the local name and position of the element it relates to. Planned variants:
+the path and position of the element it relates to. Planned variants:
 
 - `Xml` – malformed XML (from `quick-xml`), with position.
 - `UnexpectedNode` – e.g. `DOCTYPE`, or text outside the root element.
