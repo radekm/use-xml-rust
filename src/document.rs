@@ -73,16 +73,17 @@ struct Builder {
     path: Arc<ElemPath>,
     position: Position,
     attrs: BTreeMap<String, String>,
+    /// A child is added when it ends. The builder receives events only while it is
+    /// the innermost open element, i.e. when all its children have already ended,
+    /// so `children` is non-empty iff the element has children.
     children: BTreeMap<String, Vec<Elem>>,
-    /// A child was started. Unlike `children` this is set before the child ends.
-    has_children: bool,
     text: String,
     text_significant: bool,
 }
 
 impl Builder {
     fn finish(self) -> Elem {
-        let text = if !self.has_children {
+        let text = if self.children.is_empty() {
             self.text
         } else {
             String::new()
@@ -111,12 +112,12 @@ impl Builder {
     /// Adds text. `significant` is true for CDATA and text with a non-whitespace character.
     fn add_text(&mut self, text: &str, significant: bool) -> Result<(), Error> {
         if significant {
-            if self.has_children {
+            if !self.children.is_empty() {
                 return Err(self.mixed_content());
             }
             self.text_significant = true;
             self.text.push_str(text);
-        } else if !self.has_children {
+        } else if self.children.is_empty() {
             // Whitespace is kept only if the element has no children.
             self.text.push_str(text);
         }
@@ -360,7 +361,6 @@ impl<'a> Parser<'a> {
                 }
                 // Whitespace before the first child is not part of the text.
                 parent.text.clear();
-                parent.has_children = true;
                 // A previous sibling with the same local name has already ended,
                 // so it is in `children`.
                 let index = match parent.children.get(local_name) {
@@ -428,7 +428,6 @@ impl<'a> Parser<'a> {
             position,
             attrs,
             children: BTreeMap::new(),
-            has_children: false,
             text: String::new(),
             text_significant: false,
         })
