@@ -19,10 +19,14 @@ pub struct Elem {
     local_name: String,
     path: Arc<ElemPath>,                      // Pro chybové hlášky, např. `/root/items[1]/item[3]`.
     position: Position,                       // Řádek a sloupec počátečního tagu.
-    attrs: BTreeMap<String, String>,          // Klíčem je local name.
-    attrs_used: RefCell<BTreeSet<String>>,
-    children: BTreeMap<String, Vec<Elem>>,    // Klíčem je local name; v rámci jména pořadí z dokumentu.
-    children_used: RefCell<BTreeSet<String>>,
+    // Klíčem je local name; příznak říká, zda byl atribut použit.
+    attrs: BTreeMap<String, (Cell<bool>, String)>,
+    // Vyžádaná jména atributů, které neexistují.
+    missing_attrs_used: RefCell<BTreeSet<String>>,
+    // Klíčem je local name; v rámci jména pořadí z dokumentu.
+    children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
+    // Vyžádaná jména dětí, které neexistují.
+    missing_children_used: RefCell<BTreeSet<String>>,
     text: String,
     // Text obsahuje nebílý znak nebo CDATA sekci.
     text_significant: bool,
@@ -42,6 +46,10 @@ pub struct Position {
 sdílený mezi elementem a jeho potomky, takže každý element stojí jen jednu malou alokaci.
 Cesta se formátuje jako XPath: kořen bez indexu, ostatní elementy s indexem od 1
 mezi sourozenci se stejným local name, např. `/root/items[1]/item[3]`.
+
+Příznak použití existujícího atributu nebo jména dítěte je uložený vedle hodnoty,
+takže jeho použití nealokuje. Do množin `missing_*_used` se zapisují jen požadavky
+na jména, která neexistují (aby i druhý požadavek skončil chybou).
 
 Všechny metody API berou `&self`. Použití se sleduje vnitřní mutabilitou (`Cell`, `RefCell`),
 takže uživatel může držet reference na více dětí a přitom číst atributy rodiče.

@@ -72,11 +72,11 @@ impl<'a> PositionTracker<'a> {
 struct Builder {
     path: Arc<ElemPath>,
     position: Position,
-    attrs: BTreeMap<String, String>,
+    attrs: BTreeMap<String, (Cell<bool>, String)>,
     /// A child is added when it ends. The builder receives events only while it is
     /// the innermost open element, i.e. when all its children have already ended,
     /// so `children` is non-empty iff the element has children.
-    children: BTreeMap<String, Vec<Elem>>,
+    children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
     text: String,
     text_significant: bool,
 }
@@ -92,9 +92,9 @@ impl Builder {
             path: self.path,
             position: self.position,
             attrs: self.attrs,
-            attrs_used: RefCell::new(BTreeSet::new()),
+            missing_attrs_used: RefCell::new(BTreeSet::new()),
             children: self.children,
-            children_used: RefCell::new(BTreeSet::new()),
+            missing_children_used: RefCell::new(BTreeSet::new()),
             text,
             text_significant: self.text_significant,
             text_used: Cell::new(false),
@@ -365,7 +365,7 @@ impl<'a> Parser<'a> {
                 // so it is in `children`.
                 let index = match parent.children.get(local_name) {
                     None => 0,
-                    Some(siblings) => {
+                    Some((_, siblings)) => {
                         let first_prefix = siblings.first().map_or("", |e| e.path.prefix.as_str());
                         if first_prefix != prefix {
                             return Err(Error::ChildPrefixMismatch {
@@ -412,7 +412,10 @@ impl<'a> Parser<'a> {
                     position,
                 })?;
             if attrs
-                .insert(attr_local.to_owned(), value.into_owned())
+                .insert(
+                    attr_local.to_owned(),
+                    (Cell::new(false), value.into_owned()),
+                )
                 .is_some()
             {
                 return Err(Error::DuplicateAttr {
@@ -438,9 +441,10 @@ impl<'a> Parser<'a> {
         match self.stack.last_mut() {
             None => self.root = Some(elem),
             Some(parent) => match parent.children.get_mut(elem.name()) {
-                Some(siblings) => siblings.push(elem),
+                Some((_, siblings)) => siblings.push(elem),
                 None => {
-                    parent.children.insert(elem.name().to_owned(), vec![elem]);
+                    let name = elem.name().to_owned();
+                    parent.children.insert(name, (Cell::new(false), vec![elem]));
                 }
             },
         }

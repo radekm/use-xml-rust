@@ -47,10 +47,14 @@ impl fmt::Display for ElemPath {
 pub struct Elem {
     pub(crate) path: Arc<ElemPath>,
     pub(crate) position: Position,
-    pub(crate) attrs: BTreeMap<String, String>,
-    pub(crate) attrs_used: RefCell<BTreeSet<String>>,
-    pub(crate) children: BTreeMap<String, Vec<Elem>>,
-    pub(crate) children_used: RefCell<BTreeSet<String>>,
+    /// Local name -> (used, value).
+    pub(crate) attrs: BTreeMap<String, (Cell<bool>, String)>,
+    /// Requested names of attributes which do not exist.
+    pub(crate) missing_attrs_used: RefCell<BTreeSet<String>>,
+    /// Local name -> (used, children in document order).
+    pub(crate) children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
+    /// Requested names of children which do not exist.
+    pub(crate) missing_children_used: RefCell<BTreeSet<String>>,
     pub(crate) text: String,
     /// The text contains a non-whitespace character or a CDATA section.
     pub(crate) text_significant: bool,
@@ -87,17 +91,31 @@ impl Elem {
         }
     }
 
-    /// Marks `name` in `used` as used. Fails if it was already used.
-    fn mark_used(
+    /// Looks up `name` in `map` and marks it as used.
+    /// Names which are not in `map` are recorded in `missing_used`.
+    /// Fails if the name was already used.
+    fn use_entry<'s, V>(
         &self,
-        used: &RefCell<BTreeSet<String>>,
+        map: &'s BTreeMap<String, (Cell<bool>, V)>,
+        missing_used: &RefCell<BTreeSet<String>>,
         name: &str,
         item: impl FnOnce() -> Item,
-    ) -> Result<(), Error> {
-        if self.all_used.get() || !used.borrow_mut().insert(name.to_owned()) {
-            return Err(self.error_already_used(item()));
+    ) -> Result<Option<&'s V>, Error> {
+        let already_used = self.all_used.get()
+            || match map.get(name) {
+                Some((used, value)) => {
+                    if !used.replace(true) {
+                        return Ok(Some(value));
+                    }
+                    true
+                }
+                None => !missing_used.borrow_mut().insert(name.to_owned()),
+            };
+        if already_used {
+            Err(self.error_already_used(item()))
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 
     fn run_parser<T, E: fmt::Display>(
@@ -129,8 +147,7 @@ impl Elem {
         parser: impl FnOnce(&str) -> Result<T, E>,
     ) -> Result<Option<T>, Error> {
         let item = || Item::Attr(name.to_owned());
-        self.mark_used(&self.attrs_used, name, item)?;
-        match self.attrs.get(name) {
+        match self.use_entry(&self.attrs, &self.missing_attrs_used, name, item)? {
             None => Ok(None),
             Some(value) => self.run_parser(item, value, parser).map(Some),
         }
@@ -189,8 +206,9 @@ impl Elem {
     ///
     /// - [`Error::AlreadyUsed`] if children with this name were already requested.
     pub fn children(&self, name: &str) -> Result<&[Elem], Error> {
-        self.mark_used(&self.children_used, name, || Item::Child(name.to_owned()))?;
-        Ok(self.children.get(name).map_or(&[], Vec::as_slice))
+        let item = || Item::Child(name.to_owned());
+        let children = self.use_entry(&self.children, &self.missing_children_used, name, item)?;
+        Ok(children.map_or(&[], Vec::as_slice))
     }
 
     /// Returns the child with the local name `name`, or `None` if there is no such child.
@@ -253,7 +271,7 @@ impl Elem {
         let mut stack = vec![self];
         while let Some(elem) = stack.pop() {
             if !elem.all_used.replace(true) {
-                stack.extend(elem.children.values().flatten());
+                stack.extend(elem.children.values().flat_map(|(_, elems)| elems));
             }
         }
     }
@@ -274,21 +292,19 @@ impl Elem {
             item,
         };
 
-        let attrs_used = self.attrs_used.borrow();
-        if let Some(name) = self.attrs.keys().find(|n| !attrs_used.contains(*n)) {
+        if let Some((name, _)) = self.attrs.iter().find(|(_, (used, _))| !used.get()) {
             return Err(unused(Item::Attr(name.clone())));
         }
         if self.text_significant && !self.text_used.get() {
             return Err(unused(Item::Text));
         }
-        let children_used = self.children_used.borrow();
-        if let Some(name) = self.children.keys().find(|n| !children_used.contains(*n)) {
+        if let Some((name, _)) = self.children.iter().find(|(_, (used, _))| !used.get()) {
             return Err(unused(Item::Child(name.clone())));
         }
         // Recursion depth is bounded by `MAX_DEPTH`.
         self.children
             .values()
-            .flatten()
+            .flat_map(|(_, elems)| elems)
             .try_for_each(Elem::check_all_used)
     }
 }

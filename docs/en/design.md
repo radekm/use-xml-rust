@@ -19,10 +19,14 @@ pub struct Elem {
     local_name: String,
     path: Arc<ElemPath>,                      // For error messages, e.g. `/root/items[1]/item[3]`.
     position: Position,                       // Line and column of the start tag.
-    attrs: BTreeMap<String, String>,          // Key is the local name.
-    attrs_used: RefCell<BTreeSet<String>>,
-    children: BTreeMap<String, Vec<Elem>>,    // Key is the local name; document order within a name.
-    children_used: RefCell<BTreeSet<String>>,
+    // Key is the local name; the flag says whether the attribute was used.
+    attrs: BTreeMap<String, (Cell<bool>, String)>,
+    // Requested names of attributes which do not exist.
+    missing_attrs_used: RefCell<BTreeSet<String>>,
+    // Key is the local name; document order within a name.
+    children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
+    // Requested names of children which do not exist.
+    missing_children_used: RefCell<BTreeSet<String>>,
     text: String,
     // The text contains a non-whitespace character or a CDATA section.
     text_significant: bool,
@@ -42,6 +46,10 @@ pub struct Position {
 shared between an element and its descendants, so each element costs only one small allocation.
 The path is formatted like XPath: the root without an index, other elements with a 1-based index
 among siblings with the same local name, e.g. `/root/items[1]/item[3]`.
+
+The "used" flag of an existing attribute or child name is stored next to its value,
+so using it does not allocate. Only requests for names which do not exist
+are recorded in the `missing_*_used` sets (so that a second request fails too).
 
 All API methods take `&self`. Usage is tracked with interior mutability (`Cell`, `RefCell`),
 so a user can hold references to several children and still read the parent's attributes.
