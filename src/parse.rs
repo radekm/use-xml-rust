@@ -1,6 +1,6 @@
 //! Value parsers for attribute values and texts.
 //!
-//! A value parser is any function `Fn(&str) -> Result<T, E>` where `E: Display`.
+//! A value parser is any function `FnOnce(&str) -> Result<T, E>` where `E: Display`.
 //! The parsers in this module return `Result<T, String>`. All formats are strict:
 //! surrounding whitespace is not allowed.
 //!

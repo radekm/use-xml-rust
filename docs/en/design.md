@@ -16,8 +16,7 @@ The whole document is parsed into a tree of `Elem` values:
 
 ```rust
 pub struct Elem {
-    local_name: String,
-    path: Arc<ElemPath>,                      // For error messages, e.g. `/root/items[1]/item[3]`.
+    path: Arc<ElemPath>,                      // Local name and path for error messages, e.g. `/root/items[1]/item[3]`.
     position: Position,                       // Line and column of the start tag.
     // Key is the local name; the flag says whether the attribute was used.
     attrs: BTreeMap<String, (Cell<bool>, String)>,
@@ -89,8 +88,13 @@ Any violation is a parse error, not an error discovered later during extraction.
 - Whitespace means XML whitespace: space, tab, carriage return, and line feed.
 - Line endings in text and CDATA are normalized to `\n`.
   Attribute values are normalized as required by XML (e.g. line breaks become spaces).
-- Known limitation: some well-formedness constraints which `quick-xml` does not check
-  (e.g. forbidden control characters or `]]>` in text) are not checked either.
+- Known limitation: `quick-xml` is not a fully checking parser. Besides the syntax of the markup
+  it checks only comments and matching end tags, so the following is not detected:
+  invalid names (e.g. `<1/>`, `<a 1="x"/>`), names which are not namespace-well-formed
+  (e.g. `<a:/>` has an empty local name, `<a:b:c/>` has the local name `b:c`),
+  `<` in attribute values, the content of the XML declaration (e.g. a missing `version`),
+  forbidden characters (control characters, also from character references like `&#1;`),
+  and `]]>` in text. This is a limitation of `quick-xml`, not of this library's rules.
 
 ### Document
 

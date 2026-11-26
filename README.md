@@ -17,13 +17,23 @@ was not used, so changes in the input format are not silently ignored.
 ```rust
 use use_xml::parse;
 
-let root = use_xml::parse_str(xml)?;
-let people = root
-    .children("person")?
-    .iter()
-    .map(|p| Ok((p.attr("name", parse::string)?, p.attr_opt("address", parse::string)?)))
-    .collect::<Result<Vec<_>, use_xml::Error>>()?;
-root.check_all_used()?;
+fn main() -> Result<(), use_xml::Error> {
+    let xml = r#"
+        <people>
+            <person name="Pete" />
+            <person name="Harry" address="Little Whinging" />
+        </people>
+    "#;
+    let root = use_xml::parse_str(xml)?;
+    let people = root
+        .children("person")?
+        .iter()
+        .map(|p| Ok((p.attr("name", parse::string)?, p.attr_opt("address", parse::string)?)))
+        .collect::<Result<Vec<_>, use_xml::Error>>()?;
+    root.check_all_used()?;
+    assert_eq!(people.len(), 2);
+    Ok(())
+}
 ```
 
 ## Benchmark

@@ -3,7 +3,7 @@
 //! The document is parsed by [`parse_str`] or [`parse_bytes`] into a tree of [`Elem`] values.
 //! Attributes, children, and text are requested with methods of [`Elem`]
 //! and converted by value parsers from the [`parse`] module (or any function
-//! `Fn(&str) -> Result<T, E>`). Every item can be used only once.
+//! `FnOnce(&str) -> Result<T, E>`). Every item can be used only once.
 //! At the end [`Elem::check_all_used`] reports the first item which was not used.
 //!
 //! ```
@@ -39,3 +39,12 @@ pub mod parse;
 pub use document::{MAX_DEPTH, parse_bytes, parse_str};
 pub use elem::Elem;
 pub use error::{Error, Item, Position};
+
+// Compiles the examples in the READMEs as doc tests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.cs.md")]
+struct ReadmeCsDoctests;

@@ -16,8 +16,7 @@ Celý dokument se naparsuje do stromu hodnot `Elem`:
 
 ```rust
 pub struct Elem {
-    local_name: String,
-    path: Arc<ElemPath>,                      // Pro chybové hlášky, např. `/root/items[1]/item[3]`.
+    path: Arc<ElemPath>,                      // Local name a cesta pro chybové hlášky, např. `/root/items[1]/item[3]`.
     position: Position,                       // Řádek a sloupec počátečního tagu.
     // Klíčem je local name; příznak říká, zda byl atribut použit.
     attrs: BTreeMap<String, (Cell<bool>, String)>,
@@ -89,8 +88,13 @@ Každé porušení je chyba parsování, ne chyba objevená až později při ex
 - Bílými znaky se myslí bílé znaky XML: mezera, tabulátor, návrat vozíku a odřádkování.
 - Konce řádků v textu a CDATA se normalizují na `\n`.
   Hodnoty atributů se normalizují podle XML (např. konce řádků se změní na mezery).
-- Známé omezení: některá pravidla správného utvoření, která nekontroluje `quick-xml`
-  (např. zakázané řídicí znaky nebo `]]>` v textu), nekontrolujeme ani my.
+- Známé omezení: `quick-xml` není plně kontrolující parser. Kromě syntaxe značek
+  kontroluje jen komentáře a párování koncových tagů, takže se nedetekuje:
+  neplatná jména (např. `<1/>`, `<a 1="x"/>`), jména, která nejsou správně utvořená
+  vzhledem ke jmenným prostorům (např. `<a:/>` má prázdné local name, `<a:b:c/>` má local name `b:c`),
+  `<` v hodnotách atributů, obsah XML deklarace (např. chybějící `version`),
+  zakázané znaky (řídicí znaky, i ze znakových referencí jako `&#1;`)
+  a `]]>` v textu. Jde o omezení `quick-xml`, ne o pravidla této knihovny.
 
 ### Dokument
 

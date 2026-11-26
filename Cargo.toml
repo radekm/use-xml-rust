@@ -6,6 +6,7 @@ authors = ["Radek Micek"]
 license = "Zlib"
 description = "Extract data from XML documents and check that nothing was left unused."
 repository = "https://github.com/radekm/use-xml-rust"
+autobenches = false
 
 [dependencies]
 quick-xml = "=0.42.0"
