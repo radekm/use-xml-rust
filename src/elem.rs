@@ -13,6 +13,8 @@ pub(crate) struct ElemPath {
     pub(crate) parent: Option<Arc<ElemPath>>,
     /// Local name of the element.
     pub(crate) name: String,
+    /// Prefix of the element, empty if there is none.
+    pub(crate) prefix: String,
     /// Zero-based index among siblings with the same local name.
     pub(crate) index: usize,
 }

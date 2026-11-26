@@ -38,7 +38,7 @@ pub struct Position {
 }
 ```
 
-`ElemPath` is a node of a linked list `{ parent: Option<Arc<ElemPath>>, name, index }`
+`ElemPath` is a node of a linked list `{ parent: Option<Arc<ElemPath>>, name, prefix, index }`
 shared between an element and its descendants, so each element costs only one small allocation.
 The path is formatted like XPath: the root without an index, other elements with a 1-based index
 among siblings with the same local name, e.g. `/root/items[1]/item[3]`.

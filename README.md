@@ -26,6 +26,13 @@ let people = root
 root.check_all_used()?;
 ```
 
+## Benchmark
+
+`cargo bench` parses an M7 order book message (ported from UseData.Xml) and compares
+`parse_m7_message` (parsing, extraction, `check_all_used`), `parse_str_only`,
+and `read_by_quick_xml` (only tokenizing by `quick-xml`).
+The benchmark uses only the standard library, so the numbers are indicative.
+
 ## Documentation
 
 - [Design](docs/en/design.md)

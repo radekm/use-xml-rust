@@ -51,14 +51,15 @@ impl<'a> PositionTracker<'a> {
             self.position = Position { line: 1, column: 1 };
         }
         let bytes = self.input.as_bytes();
-        for (i, c) in self.input[self.offset..offset].char_indices() {
-            let i = self.offset + i;
+        for i in self.offset..offset {
+            let b = bytes[i];
             // `\r\n` and a lone `\r` are line breaks (only `\n` of `\r\n` advances the line).
-            let line_break = c == '\n' || (c == '\r' && bytes.get(i + 1) != Some(&b'\n'));
+            let line_break = b == b'\n' || (b == b'\r' && bytes.get(i + 1) != Some(&b'\n'));
             if line_break {
                 self.position.line = self.position.line.saturating_add(1);
                 self.position.column = 1;
-            } else if c != '\r' {
+            } else if b != b'\r' && (b & 0xC0) != 0x80 {
+                // Count only the first byte of each UTF-8 encoded character.
                 self.position.column = self.position.column.saturating_add(1);
             }
         }
@@ -72,15 +73,16 @@ struct Builder {
     path: Arc<ElemPath>,
     position: Position,
     attrs: BTreeMap<String, String>,
-    /// For every local name the prefix of the first child and the children.
-    children: BTreeMap<String, (String, Vec<Elem>)>,
+    children: BTreeMap<String, Vec<Elem>>,
+    /// A child was started. Unlike `children` this is set before the child ends.
+    has_children: bool,
     text: String,
     text_significant: bool,
 }
 
 impl Builder {
     fn finish(self) -> Elem {
-        let text = if self.children.is_empty() {
+        let text = if !self.has_children {
             self.text
         } else {
             String::new()
@@ -90,11 +92,7 @@ impl Builder {
             position: self.position,
             attrs: self.attrs,
             attrs_used: RefCell::new(BTreeSet::new()),
-            children: self
-                .children
-                .into_iter()
-                .map(|(name, (_, elems))| (name, elems))
-                .collect(),
+            children: self.children,
             children_used: RefCell::new(BTreeSet::new()),
             text,
             text_significant: self.text_significant,
@@ -113,12 +111,12 @@ impl Builder {
     /// Adds text. `significant` is true for CDATA and text with a non-whitespace character.
     fn add_text(&mut self, text: &str, significant: bool) -> Result<(), Error> {
         if significant {
-            if !self.children.is_empty() {
+            if self.has_children {
                 return Err(self.mixed_content());
             }
             self.text_significant = true;
             self.text.push_str(text);
-        } else if self.children.is_empty() {
+        } else if !self.has_children {
             // Whitespace is kept only if the element has no children.
             self.text.push_str(text);
         }
@@ -362,27 +360,25 @@ impl<'a> Parser<'a> {
                 }
                 // Whitespace before the first child is not part of the text.
                 parent.text.clear();
+                parent.has_children = true;
+                // A previous sibling with the same local name has already ended,
+                // so it is in `children`.
                 let index = match parent.children.get(local_name) {
                     None => 0,
-                    Some((first_prefix, elems)) => {
+                    Some(siblings) => {
+                        let first_prefix = siblings.first().map_or("", |e| e.path.prefix.as_str());
                         if first_prefix != prefix {
                             return Err(Error::ChildPrefixMismatch {
                                 path: parent.path.to_string(),
                                 position,
                                 name: local_name.to_owned(),
-                                first_prefix: first_prefix.clone(),
+                                first_prefix: first_prefix.to_owned(),
                                 second_prefix: prefix.to_owned(),
                             });
                         }
-                        elems.len()
+                        siblings.len()
                     }
                 };
-                // Register the name now, so the parent knows it has children
-                // and the prefix is checked for the following siblings.
-                parent
-                    .children
-                    .entry(local_name.to_owned())
-                    .or_insert_with(|| (prefix.to_owned(), Vec::new()));
                 (Some(parent.path.clone()), index)
             }
         };
@@ -390,6 +386,7 @@ impl<'a> Parser<'a> {
         let path = Arc::new(ElemPath {
             parent: parent_path,
             name: local_name.to_owned(),
+            prefix: prefix.to_owned(),
             index,
         });
 
@@ -431,6 +428,7 @@ impl<'a> Parser<'a> {
             position,
             attrs,
             children: BTreeMap::new(),
+            has_children: false,
             text: String::new(),
             text_significant: false,
         })
@@ -440,15 +438,12 @@ impl<'a> Parser<'a> {
         let elem = builder.finish();
         match self.stack.last_mut() {
             None => self.root = Some(elem),
-            Some(parent) => {
-                // `start_element` registered the name, so the entry exists.
-                parent
-                    .children
-                    .entry(elem.path.name.clone())
-                    .or_insert_with(|| (String::new(), Vec::new()))
-                    .1
-                    .push(elem);
-            }
+            Some(parent) => match parent.children.get_mut(elem.name()) {
+                Some(siblings) => siblings.push(elem),
+                None => {
+                    parent.children.insert(elem.name().to_owned(), vec![elem]);
+                }
+            },
         }
     }
 }

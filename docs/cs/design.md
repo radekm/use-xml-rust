@@ -38,7 +38,7 @@ pub struct Position {
 }
 ```
 
-`ElemPath` je uzel spojového seznamu `{ parent: Option<Arc<ElemPath>>, name, index }`
+`ElemPath` je uzel spojového seznamu `{ parent: Option<Arc<ElemPath>>, name, prefix, index }`
 sdílený mezi elementem a jeho potomky, takže každý element stojí jen jednu malou alokaci.
 Cesta se formátuje jako XPath: kořen bez indexu, ostatní elementy s indexem od 1
 mezi sourozenci se stejným local name, např. `/root/items[1]/item[3]`.
