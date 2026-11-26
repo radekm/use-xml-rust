@@ -40,6 +40,15 @@ pub use document::{MAX_DEPTH, parse_bytes, parse_str};
 pub use elem::Elem;
 pub use error::{Error, ErrorKind, Item, MAX_VALUE_CHARS, Position};
 
+/// `Elem` uses `Cell` and `RefCell` for usage tracking, so it must not be `Sync`.
+///
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<use_xml::Elem>();
+/// ```
+#[cfg(doctest)]
+struct ElemIsNotSync;
+
 // Compiles the examples in the READMEs as doc tests.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
