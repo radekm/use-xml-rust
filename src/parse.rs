@@ -20,11 +20,19 @@ use rust_decimal::Decimal;
 use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
 /// Returns the string unchanged.
+///
+/// # Errors
+///
+/// Never fails. The `Result` is returned only for consistency with the other parsers.
 pub fn string(s: &str) -> Result<String, String> {
     Ok(s.to_owned())
 }
 
 /// Returns the string if it is not empty.
+///
+/// # Errors
+///
+/// Returns an error message if the string is empty.
 pub fn string_non_empty(s: &str) -> Result<String, String> {
     if s.is_empty() {
         Err("expected non-empty string".to_owned())
@@ -35,6 +43,12 @@ pub fn string_non_empty(s: &str) -> Result<String, String> {
 
 /// Returns the string if it contains at least one character
 /// which is not XML whitespace (space, tab, carriage return, line feed).
+///
+/// Other Unicode whitespace (e.g. `U+00A0` no-break space) counts as a non-whitespace character.
+///
+/// # Errors
+///
+/// Returns an error message if the string is empty or consists only of XML whitespace.
 pub fn string_non_whitespace(s: &str) -> Result<String, String> {
     if s.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r')) {
         Err("expected string with at least one non-whitespace character".to_owned())
@@ -71,6 +85,11 @@ macro_rules! integer_parsers {
     ($signs:literal: $($t:ident),*) => {
         $(
             #[doc = concat!("Parses `", stringify!($t), "` with `from_str`: digits with an optional leading ", $signs, ".")]
+            ///
+            /// # Errors
+            ///
+            /// Returns an error message if the string is not a number in this format
+            /// or the number is out of the range of the type.
             pub fn $t(s: &str) -> Result<$t, String> {
                 s.parse::<$t>().map_err(|_| concat!("expected ", stringify!($t)).to_owned())
             }
@@ -97,6 +116,11 @@ integer_parsers!("`+`": u8, u16, u32, u64, u128, usize);
 /// assert_eq!(parse::decimal(&thirty_zeros).unwrap().to_string(), "1");
 /// assert!(parse::decimal(&format!("0.{}1", "0".repeat(28))).is_err());
 /// ```
+///
+/// # Errors
+///
+/// Returns an error message if the string is not in this format
+/// or the number cannot be represented exactly by [`Decimal`].
 pub fn decimal(s: &str) -> Result<Decimal, String> {
     let error = || "expected decimal".to_owned();
     let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
@@ -129,6 +153,10 @@ pub fn decimal(s: &str) -> Result<Decimal, String> {
 }
 
 /// Like [`decimal`] but rejects negative numbers.
+///
+/// # Errors
+///
+/// Returns an error message if [`decimal`] fails or the number is negative.
 pub fn decimal_non_negative(s: &str) -> Result<Decimal, String> {
     let d = decimal(s)?;
     if d < Decimal::ZERO {
@@ -139,6 +167,10 @@ pub fn decimal_non_negative(s: &str) -> Result<Decimal, String> {
 }
 
 /// Parses exactly `true` or `false`.
+///
+/// # Errors
+///
+/// Returns an error message for any other string.
 pub fn bool(s: &str) -> Result<bool, String> {
     match s {
         "true" => Ok(true),
@@ -195,6 +227,11 @@ fn primitive_date_time(s: &str) -> Option<(PrimitiveDateTime, &str)> {
 ///
 /// A space may be used instead of `T`. The fraction has 1–9 digits.
 /// Only `Z` is accepted as the offset; use [`date_time_offset`] for other offsets.
+///
+/// # Errors
+///
+/// Returns an error message if the string is not in this format
+/// or it is not a valid date and time (e.g. February 30 or hour 24).
 pub fn date_time_utc(s: &str) -> Result<OffsetDateTime, String> {
     match primitive_date_time(s) {
         Some((dt, "Z")) => Ok(dt.assume_utc()),
@@ -206,6 +243,12 @@ pub fn date_time_utc(s: &str) -> Result<OffsetDateTime, String> {
 ///
 /// A space may be used instead of `T`. The fraction has 1–9 digits.
 /// Date times which cannot be converted to UTC (e.g. `9999-12-31T23:59:59-01:00`) are rejected.
+///
+/// # Errors
+///
+/// Returns an error message if the string is not in this format, it is not a valid date and time,
+/// the offset is out of range (hours above 23 or minutes above 59),
+/// or the date time cannot be converted to UTC.
 pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
     let parse_offset = |rest: &str| -> Option<UtcOffset> {
         if rest == "Z" {
