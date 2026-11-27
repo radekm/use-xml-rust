@@ -71,7 +71,8 @@ a přitom číst atributy rodiče. `RefCell` není nikdy vypůjčená, zatímco 
 (např. parser hodnoty). `Document` je proto `Send`, ale ne `Sync`, a `Elem` není ani jedno.
 
 `Debug` pro `Elem` vypíše jen samotný element: cestu, pozici, atributy, počet dětí
-pro každé jméno a text (použité hodnoty se zobrazí jako `<used>`). Hodnoty delší než
+pro každé jméno a text (použitý text se zobrazí jako `<used>`; použitý atribut i vyžádaný
+chybějící atribut jsou oba uložené jako `None`, takže se zobrazí jako `<used or missing>`). Hodnoty delší než
 `MAX_VALUE_CHARS = 100` znaků se zkrátí a končí `…`. `Debug` pro `Document`
 vypíše počet elementů a kořen.
 

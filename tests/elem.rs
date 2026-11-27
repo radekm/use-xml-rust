@@ -1437,6 +1437,20 @@ fn debug_prints_only_the_element() -> anyhow::Result<()> {
 }
 
 #[test]
+fn debug_shows_used_and_missing_items() -> anyhow::Result<()> {
+    let doc = parse_str(r#"<r x="1">t</r>"#)?;
+    let e = doc.root();
+    e.attr(NO, "x", parse::u8)?;
+    assert_eq!(e.attr_opt(NO, "y", parse::u8)?, None);
+    e.text(parse::string)?;
+    assert_eq!(
+        format!("{e:?}"),
+        r#"Elem { path: "/r", position: Position { line: 1, column: 1 }, attrs: {"x": <used or missing>, "y": <used or missing>}, children: {}, text: <used> }"#
+    );
+    Ok(())
+}
+
+#[test]
 fn debug_of_deep_document_is_small() -> anyhow::Result<()> {
     let doc = parse_str(&("<a>".repeat(MAX_DEPTH) + &"</a>".repeat(MAX_DEPTH)))?;
     let e = doc.root();

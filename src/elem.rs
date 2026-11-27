@@ -32,6 +32,8 @@ pub struct Elem<'doc> {
 impl fmt::Debug for Elem<'_> {
     /// Prints only this element, not its descendants: its path, position, attributes,
     /// the number of children for each name, and its text.
+    /// A used text is shown as `<used>`. A used attribute and a requested missing attribute
+    /// are shown as `<used or missing>` because they are stored the same way.
     /// Values longer than [`MAX_VALUE_CHARS`](crate::MAX_VALUE_CHARS) characters are cut and end with `…`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         /// A value which is already formatted.
@@ -41,9 +43,9 @@ impl fmt::Debug for Elem<'_> {
                 f.write_str(&self.0)
             }
         }
-        let value = |value: Option<&str>| {
+        let value = |value: Option<&str>, used: &str| {
             Raw(value.map_or_else(
-                || "<used>".to_owned(),
+                || used.to_owned(),
                 |value| format!("{:?}", truncate_value(value)),
             ))
         };
@@ -55,7 +57,12 @@ impl fmt::Debug for Elem<'_> {
             .attrs
             .borrow()
             .iter()
-            .map(|(name, v)| (names.qualified_name(*name).to_string(), value(v.as_deref())))
+            .map(|(name, v)| {
+                (
+                    names.qualified_name(*name).to_string(),
+                    value(v.as_deref(), "<used or missing>"),
+                )
+            })
             .collect();
         let children: BTreeMap<String, usize> = node
             .children
@@ -64,7 +71,7 @@ impl fmt::Debug for Elem<'_> {
             .map(|(name, (_, elems))| (names.qualified_name(*name).to_string(), elems.len()))
             .collect();
         let text = node.text.take();
-        let text_debug = value(text.as_deref());
+        let text_debug = value(text.as_deref(), "<used>");
         node.text.set(text);
 
         f.debug_struct("Elem")

@@ -71,7 +71,8 @@ and still read the parent's attributes. A `RefCell` is never borrowed while user
 (e.g. a value parser) runs. `Document` is therefore `Send` but not `Sync`, and `Elem` is neither.
 
 `Debug` of `Elem` prints only the element: its path, position, attributes, the number of children
-for each name, and its text (used values are shown as `<used>`). Values longer than
+for each name, and its text (a used text is shown as `<used>`; a used attribute and a requested
+missing attribute are both stored as `None`, so they are shown as `<used or missing>`). Values longer than
 `MAX_VALUE_CHARS = 100` characters are cut and end with `…`. `Debug` of `Document`
 prints the number of elements and the root.
 
