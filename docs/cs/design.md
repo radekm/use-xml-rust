@@ -26,7 +26,7 @@ struct Node {
     name: QualifiedNameHandle,
     raw_name: u32,                 // Jméno, jak je zapsané (s prefixem), používá se v cestách.
     parent: Option<u32>,           // Index rodičovského uzlu.
-    index: u32,                    // Index (od 1) mezi sourozenci se stejným kvalifikovaným jménem.
+    index: u32,                    // Index (od 0) mezi sourozenci se stejným kvalifikovaným jménem.
     position: Position,            // Řádek a sloupec počátečního tagu.
     text_significant: bool,
     all_used: Cell<bool>,          // Bylo zavoláno `ignore_all`.
@@ -117,9 +117,10 @@ nic najít, je chyba místo tiše chybějící položky:
 
 ### Cesty
 
-Cesta elementu se formátuje jako XPath ze jmen tak, jak jsou zapsaná v dokumentu
-(s prefixy): kořen bez indexu, ostatní elementy s indexem (od 1) mezi sourozenci
-se stejným kvalifikovaným jménem, např. `/root/items[1]/item[3]` nebo `/x/p:item[2]`.
+Cesta elementu se formátuje podobně jako XPath ze jmen tak, jak jsou zapsaná v dokumentu
+(s prefixy): kořen bez indexu, ostatní elementy s indexem (od 0) mezi sourozenci
+se stejným kvalifikovaným jménem, např. `/root/items[0]/item[2]` nebo `/x/p:item[1]`.
+Na rozdíl od XPath je index od 0, takže odpovídá indexu do výsledku `children`.
 Cesty se sestavují jen v případě potřeby (chyby, `Elem::path`) průchodem přes rodiče.
 
 ## Pravidla parsování
@@ -268,7 +269,7 @@ root.namespace_uri();                          // &str
 root.prefixed_name();                          // &str – jak je zapsané, např. `p:item`
 root.parent();                                 // Option<Elem>
 root.document();                               // &Document
-root.path();                                   // String, např. `/root/items[1]/item[3]`
+root.path();                                   // String, např. `/root/items[0]/item[2]`
 root.position();                               // Position
 
 root.attr(no, "id", parse::u32)?;              // T, chyba pokud chybí

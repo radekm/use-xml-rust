@@ -146,7 +146,7 @@ fn default_namespace() -> anyhow::Result<()> {
         .child(html, "tr")?
         .child(html, "td")?;
     assert_eq!(cell.text(parse::string)?, "Cell");
-    assert_eq!(cell.path(), "/root/table[1]/tr[1]/td[1]");
+    assert_eq!(cell.path(), "/root/table[0]/tr[0]/td[0]");
     e.check_all_used()?;
     Ok(())
 }
@@ -201,7 +201,7 @@ fn different_prefixes_with_same_namespace_are_the_same_name() -> anyhow::Result<
     let x = doc.namespace("urn:x")?;
     let items = doc.root().children(x, "i")?;
     let paths: Vec<String> = items.iter().map(|i| i.path()).collect();
-    assert_eq!(paths, ["/r/a:i[1]", "/r/b:i[2]", "/r/i[3]"]);
+    assert_eq!(paths, ["/r/a:i[0]", "/r/b:i[1]", "/r/i[2]"]);
     doc.check_all_used()?;
     Ok(())
 }
@@ -213,7 +213,7 @@ fn same_local_name_in_different_namespaces() -> anyhow::Result<()> {
     let e = doc.root();
     assert_eq!(e.children(a, "x")?.len(), 2);
     let x = e.child(NO, "x")?;
-    assert_eq!(x.path(), "/r/x[1]");
+    assert_eq!(x.path(), "/r/x[0]");
     doc.check_all_used()?;
     Ok(())
 }
@@ -450,7 +450,7 @@ fn mixed_content_text_after_child() {
     assert_eq!(
         parse_str("<r><a><b/>text</a></r>").unwrap_err(),
         ErrorKind::MixedContent {
-            path: "/r/a[1]".to_owned(),
+            path: "/r/a[0]".to_owned(),
             position: pos(1, 11)
         }
     );
@@ -461,7 +461,7 @@ fn mixed_content_cdata_after_child() {
     assert_eq!(
         parse_str("<r>\n<a><b/><![CDATA[]]></a></r>").unwrap_err(),
         ErrorKind::MixedContent {
-            path: "/r/a[1]".to_owned(),
+            path: "/r/a[0]".to_owned(),
             position: pos(2, 8)
         }
     );
@@ -588,7 +588,7 @@ fn very_deep_document_does_not_overflow_stack() {
     assert_eq!(
         parse_str(&input).unwrap_err(),
         ErrorKind::MaxDepthExceeded {
-            path: "/a".to_owned() + &"/a[1]".repeat(MAX_DEPTH - 1),
+            path: "/a".to_owned() + &"/a[0]".repeat(MAX_DEPTH - 1),
             position: pos(1, 3 * MAX_DEPTH as u32 + 1),
             max_depth: MAX_DEPTH
         }
@@ -721,7 +721,7 @@ fn invalid_value() -> anyhow::Result<()> {
     assert_eq!(
         n.attr(NO, "v", parse::u32).unwrap_err(),
         ErrorKind::InvalidValue {
-            path: "/r/n[1]".to_owned(),
+            path: "/r/n[0]".to_owned(),
             position: pos(2, 3),
             item: attr_item("", "v"),
             message: r#"expected u32, got "x""#.to_owned()
@@ -730,7 +730,7 @@ fn invalid_value() -> anyhow::Result<()> {
     assert_eq!(
         n.text(parse::u32).unwrap_err(),
         ErrorKind::InvalidValue {
-            path: "/r/n[1]".to_owned(),
+            path: "/r/n[0]".to_owned(),
             position: pos(2, 3),
             item: Item::Text,
             message: r#"expected u32, got "12a""#.to_owned()
@@ -857,7 +857,7 @@ fn ignore_all_on_parent_affects_previously_obtained_child() -> anyhow::Result<()
     e.ignore_all();
     assert_eq!(
         b.attr(NO, "y", parse::string).unwrap_err(),
-        already_used("/a/b[1]", pos(1, 4), attr_item("", "y"))
+        already_used("/a/b[0]", pos(1, 4), attr_item("", "y"))
     );
     e.check_all_used()?;
     Ok(())
@@ -897,7 +897,7 @@ fn unused_element() -> anyhow::Result<()> {
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
             // The path and the position of the unused child, not of its parent.
-            path: "/company/address[1]/city[1]".to_owned(),
+            path: "/company/address[0]/city[0]".to_owned(),
             position: pos(4, 9),
             item: child_item("", "city")
         }
@@ -914,14 +914,14 @@ fn unused_child_points_to_the_first_child_with_the_name() -> anyhow::Result<()> 
     assert_eq!(
         error,
         ErrorKind::Unused {
-            path: "/r/b[1]".to_owned(),
+            path: "/r/b[0]".to_owned(),
             position: pos(3, 3),
             item: child_item("", "b")
         }
     );
     assert_eq!(
         error.to_string(),
-        "element /r/b[1] at line 3, column 3 not used"
+        "element /r/b[0] at line 3, column 3 not used"
     );
     e.children(NO, "b")?;
     e.check_all_used()?;
@@ -937,14 +937,14 @@ fn error_position_and_path() -> anyhow::Result<()> {
     let error = a.attr(NO, "y", parse::string).unwrap_err();
     assert_eq!(
         (error.path(), error.position()),
-        (Some("/r/a[1]"), Some(pos(2, 3)))
+        (Some("/r/a[0]"), Some(pos(2, 3)))
     );
-    assert_eq!(error.kind().path(), Some("/r/a[1]"));
+    assert_eq!(error.kind().path(), Some("/r/a[0]"));
     assert_eq!(error.kind().position(), Some(pos(2, 3)));
     let error = e.check_all_used().unwrap_err();
     assert_eq!(
         (error.path(), error.position()),
-        (Some("/r/a[1]"), Some(pos(2, 3)))
+        (Some("/r/a[0]"), Some(pos(2, 3)))
     );
 
     // Errors not related to an element.
@@ -956,7 +956,7 @@ fn error_position_and_path() -> anyhow::Result<()> {
     let error = parse_str("<r>\n<a x='1' x='2'/></r>").unwrap_err();
     assert_eq!(
         (error.path(), error.position()),
-        (Some("/r/a[1]"), Some(pos(2, 10)))
+        (Some("/r/a[0]"), Some(pos(2, 10)))
     );
     let error = parse_str(&"<a>".repeat(MAX_DEPTH + 1)).unwrap_err();
     assert_eq!(error.position(), Some(pos(1, 3 * MAX_DEPTH as u32 + 1)));
@@ -978,7 +978,7 @@ fn unused_attribute() -> anyhow::Result<()> {
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/company/address[1]".to_owned(),
+            path: "/company/address[0]".to_owned(),
             position: pos(2, 5),
             item: attr_item("", "street")
         }
@@ -999,7 +999,7 @@ fn unused_text() -> anyhow::Result<()> {
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/company/address[1]/city[1]".to_owned(),
+            path: "/company/address[0]/city[0]".to_owned(),
             position: pos(4, 9),
             item: Item::Text
         }
@@ -1040,7 +1040,7 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     e.attr(NO, "x", parse::string)?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a/b[1]", pos(1, 10), child_item("", "b"))
+        unused("/a/b[0]", pos(1, 10), child_item("", "b"))
     );
     // Own items before descendants.
     let doc = parse_str(r#"<a><b y="1"/><c/></a>"#)?;
@@ -1048,7 +1048,7 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     e.children(NO, "b")?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a/c[1]", pos(1, 14), child_item("", "c"))
+        unused("/a/c[0]", pos(1, 14), child_item("", "c"))
     );
     Ok(())
 }
@@ -1061,7 +1061,7 @@ fn check_reports_first_unused_descendant_in_document_order() -> anyhow::Result<(
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/r/i[2]".to_owned(),
+            path: "/r/i[1]".to_owned(),
             position: pos(1, 8),
             item: attr_item("", "x")
         }
@@ -1079,12 +1079,12 @@ fn paths() -> anyhow::Result<()> {
     let e = doc.root();
     assert_eq!(e.path(), "/root");
     let items = e.child(NO, "items")?;
-    assert_eq!(items.path(), "/root/items[1]");
+    assert_eq!(items.path(), "/root/items[0]");
     assert_eq!(
         items.children(NO, "item")?[2].path(),
-        "/root/items[1]/item[3]"
+        "/root/items[0]/item[2]"
     );
-    assert_eq!(items.child(NO, "x")?.path(), "/root/items[1]/x[1]");
+    assert_eq!(items.child(NO, "x")?.path(), "/root/items[0]/x[0]");
     Ok(())
 }
 
@@ -1262,7 +1262,7 @@ fn max_depth_with_empty_element() -> anyhow::Result<()> {
         } => {
             assert_eq!(max_depth, MAX_DEPTH);
             assert_eq!(position, pos(1, 3 * 256 + 1));
-            assert_eq!(path, "/a".to_owned() + &"/a[1]".repeat(255));
+            assert_eq!(path, "/a".to_owned() + &"/a[0]".repeat(255));
         }
         e => panic!("unexpected error {e:?}"),
     }
@@ -1305,7 +1305,7 @@ fn missing_names_are_already_used_after_ignore_all() -> anyhow::Result<()> {
     );
     assert_eq!(
         b.children(NO, "z").unwrap_err(),
-        already_used("/a/b[1]", pos(1, 4), child_item("", "z"))
+        already_used("/a/b[0]", pos(1, 4), child_item("", "z"))
     );
     e.check_all_used()?;
     Ok(())
@@ -1319,7 +1319,7 @@ fn ignore_all_on_child_does_not_hide_unused_siblings() -> anyhow::Result<()> {
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/a/b[2]".to_owned(),
+            path: "/a/b[1]".to_owned(),
             position: pos(1, 14),
             item: attr_item("", "y")
         }
@@ -1506,7 +1506,7 @@ fn mixed_content_whitespace_cdata_before_child() {
     assert_eq!(
         parse_str("<r>\n<a><![CDATA[ ]]><b/></a></r>").unwrap_err(),
         ErrorKind::MixedContent {
-            path: "/r/a[1]".to_owned(),
+            path: "/r/a[0]".to_owned(),
             position: pos(2, 4)
         }
     );

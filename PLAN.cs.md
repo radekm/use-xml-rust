@@ -55,7 +55,7 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
    Samostatný parser `date_time_offset` parsuje datum a čas s offsetem.
 4. `decimal` je striktní: pouze volitelné znaménko na začátku a volitelná desetinná tečka
    (žádný exponent, oddělovače tisíců ani bílé znaky).
-5. Chyby kromě řádku a sloupce obsahují i cestu k elementu (např. `/root/items[1]/item[3]`).
+5. Chyby kromě řádku a sloupce obsahují i cestu k elementu (např. `/root/items[0]/item[2]`).
 6. `NamespaceHandle(u8)` (nejvýše 256 namespaců včetně prázdného a `xml`),
    `QualifiedNameHandle(u32)`.
 7. Parser XML je vlastní; `quick-xml` už není závislost.
@@ -64,7 +64,7 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
 9. Parsery hodnot dostávají `String` (hodnota se z dokumentu přesune), takže `parse::string`
    nekopíruje. `InvalidValue` proto hodnotu neobsahuje;
    parsery z `parse` ji (zkrácenou) vkládají do svých hlášek.
-10. Cesty používají jména tak, jak jsou zapsaná v dokumentu (s prefixy); index počítá sourozence
+10. Cesty používají jména tak, jak jsou zapsaná v dokumentu (s prefixy); index (od 0) počítá sourozence
     se stejným kvalifikovaným jménem. Jména v chybách jsou `QualifiedName`, zobrazená jako `local`
     nebo `{namespace}local`.
 11. `check_all_used` řadí atributy a jména dětí podle jejich handlů, tj. podle prvního

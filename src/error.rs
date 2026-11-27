@@ -108,7 +108,7 @@ impl fmt::Display for Limit {
 ///
 /// let error = use_xml::parse_str("<r>\n  <a><b/>text</a></r>").unwrap_err();
 /// assert!(matches!(error.kind(), ErrorKind::MixedContent { .. }));
-/// assert_eq!(error.path(), Some("/r/a[1]"));
+/// assert_eq!(error.path(), Some("/r/a[0]"));
 /// assert_eq!(error.position(), Some(use_xml::Position { line: 2, column: 10 }));
 /// ```
 #[derive(Clone, PartialEq, Eq, thiserror::Error)]
@@ -163,7 +163,7 @@ impl PartialEq<ErrorKind> for Error {
 /// Details of an [`Error`].
 ///
 /// Errors related to an element contain the path of the element
-/// (e.g. `/root/items[1]/item[3]`) and a position in the source document.
+/// (e.g. `/root/items[0]/item[2]`) and a position in the source document.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ErrorKind {
@@ -419,7 +419,7 @@ impl ErrorKind {
         }
     }
 
-    /// Returns the path of the element related to the error, e.g. `/root/items[1]/item[3]`.
+    /// Returns the path of the element related to the error, e.g. `/root/items[0]/item[2]`.
     ///
     /// Returns `None` for [`Xml`](Self::Xml), [`Namespace`](Self::Namespace),
     /// [`Encoding`](Self::Encoding), [`UnexpectedNode`](Self::UnexpectedNode),

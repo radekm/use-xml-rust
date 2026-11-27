@@ -62,7 +62,7 @@ fn non_xml_whitespace_is_significant() -> anyhow::Result<()> {
         assert_eq!(
             e.check_all_used().unwrap_err(),
             ErrorKind::Unused {
-                path: "/r/a[1]".to_owned(),
+                path: "/r/a[0]".to_owned(),
                 position: pos(2, 1),
                 item: Item::Text
             },
@@ -72,7 +72,7 @@ fn non_xml_whitespace_is_significant() -> anyhow::Result<()> {
         assert_eq!(
             parse_str(&format!("<r>\n<a>{ws}<b/></a></r>")).unwrap_err(),
             ErrorKind::MixedContent {
-                path: "/r/a[1]".to_owned(),
+                path: "/r/a[0]".to_owned(),
                 position: pos(2, 4)
             },
             "{ws:?}"
@@ -588,11 +588,11 @@ fn duplicate_attributes() {
         (r#"<e x="1" x="2"/>"#, duplicate("/e", pos(1, 10), "x")),
         (
             "<r xmlns:a='urn:x' xmlns:b='urn:x'>\n<e a:x='1' b:x='2'/></r>",
-            duplicate("/r/e[1]", pos(2, 12), "b:x"),
+            duplicate("/r/e[0]", pos(2, 12), "b:x"),
         ),
         (
             "<r xmlns:a='urn:a'><e a:x='1' a:x='2'/></r>",
-            duplicate("/r/e[1]", pos(1, 31), "a:x"),
+            duplicate("/r/e[0]", pos(1, 31), "a:x"),
         ),
         (
             "<e xmlns='u' xmlns='v'/>",
@@ -909,7 +909,7 @@ fn deep_document_needs_little_stack() {
         assert_eq!(
             doc.check_all_used().unwrap_err(),
             ErrorKind::Unused {
-                path: "/a".to_owned() + &"/a[1]".repeat(MAX_DEPTH - 1),
+                path: "/a".to_owned() + &"/a[0]".repeat(MAX_DEPTH - 1),
                 position: pos(1, 3 * MAX_DEPTH as u32 - 2),
                 item: attr_item("", "x")
             }
@@ -942,7 +942,7 @@ fn check_all_used_goes_deep_before_next_name() -> anyhow::Result<()> {
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/r/b[1]".to_owned(),
+            path: "/r/b[0]".to_owned(),
             position: pos(1, 4),
             item: attr_item("", "y")
         }
@@ -959,7 +959,7 @@ fn check_all_used_orders_names_by_first_occurrence() -> anyhow::Result<()> {
     assert_eq!(
         doc.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/r/y[1]".to_owned(),
+            path: "/r/y[0]".to_owned(),
             position: pos(1, 20),
             item: child_item("", "y")
         }
@@ -968,7 +968,7 @@ fn check_all_used_orders_names_by_first_occurrence() -> anyhow::Result<()> {
     assert_eq!(
         doc.check_all_used().unwrap_err(),
         ErrorKind::Unused {
-            path: "/r/a[1]".to_owned(),
+            path: "/r/a[0]".to_owned(),
             position: pos(1, 4),
             item: attr_item("", "z")
         }
@@ -1049,7 +1049,7 @@ fn error_messages() -> anyhow::Result<()> {
         message(&"<a>".repeat(MAX_DEPTH + 1)),
         format!(
             "element /a{} contains a child at line 1, column {} which exceeds the maximum depth 256",
-            "/a[1]".repeat(MAX_DEPTH - 1),
+            "/a[0]".repeat(MAX_DEPTH - 1),
             3 * MAX_DEPTH + 1
         )
     );
@@ -1096,7 +1096,7 @@ fn error_messages() -> anyhow::Result<()> {
     let e = doc.root();
     assert_eq!(
         e.check_all_used().unwrap_err().to_string(),
-        "element /r/b[1] at line 1, column 4 not used"
+        "element /r/b[0] at line 1, column 4 not used"
     );
     assert_eq!(
         e.child_opt(NO, "b").unwrap_err().to_string(),

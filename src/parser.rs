@@ -913,10 +913,11 @@ impl<'a> Parser<'a> {
                 }
                 let (_, siblings) = children.entry(qname).or_insert_with(|| (false, Vec::new()));
                 siblings.push(node_index);
+                // `siblings` is not empty (the node was just pushed), so `len() - 1` does not underflow.
                 // The number of siblings is at most the number of nodes, which fits into `u32`.
                 (
                     Some(parent),
-                    u32::try_from(siblings.len()).unwrap_or(u32::MAX),
+                    u32::try_from(siblings.len() - 1).unwrap_or(u32::MAX),
                 )
             }
         };

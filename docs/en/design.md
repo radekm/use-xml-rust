@@ -26,7 +26,7 @@ struct Node {
     name: QualifiedNameHandle,
     raw_name: u32,                 // Name as written (with the prefix), used in paths.
     parent: Option<u32>,           // Index of the parent node.
-    index: u32,                    // 1-based index among siblings with the same qualified name.
+    index: u32,                    // 0-based index among siblings with the same qualified name.
     position: Position,            // Line and column of the start tag.
     text_significant: bool,
     all_used: Cell<bool>,          // `ignore_all` was called.
@@ -117,9 +117,10 @@ match is an error instead of a silently missing item:
 
 ### Paths
 
-The path of an element is formatted like XPath from the names as written in the document
-(with prefixes): the root without an index, other elements with a 1-based index among siblings
-with the same qualified name, e.g. `/root/items[1]/item[3]` or `/x/p:item[2]`.
+The path of an element is formatted similarly to XPath from the names as written in the document
+(with prefixes): the root without an index, other elements with a 0-based index among siblings
+with the same qualified name, e.g. `/root/items[0]/item[2]` or `/x/p:item[1]`.
+Unlike XPath, the index is 0-based, so it matches the index into the result of `children`.
 Paths are built only when needed (errors, `Elem::path`) by walking the parents.
 
 ## Parsing rules
@@ -268,7 +269,7 @@ root.namespace_uri();                          // &str
 root.prefixed_name();                          // &str – as written, e.g. `p:item`
 root.parent();                                 // Option<Elem>
 root.document();                               // &Document
-root.path();                                   // String, e.g. `/root/items[1]/item[3]`
+root.path();                                   // String, e.g. `/root/items[0]/item[2]`
 root.position();                               // Position
 
 root.attr(no, "id", parse::u32)?;              // T, error if missing

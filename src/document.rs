@@ -22,7 +22,7 @@ pub(crate) struct Node {
     pub(crate) raw_name: u32,
     /// Index of the parent node; `None` for the root.
     pub(crate) parent: Option<u32>,
-    /// 1-based index among the siblings with the same qualified name; 0 for the root.
+    /// 0-based index among the siblings with the same qualified name; 0 for the root.
     pub(crate) index: u32,
     pub(crate) position: Position,
     pub(crate) text_significant: bool,
@@ -36,7 +36,7 @@ pub(crate) struct Node {
     pub(crate) children: RefCell<BTreeMap<QualifiedNameHandle, (bool, Vec<u32>)>>,
 }
 
-/// Formats the path of the node `index`, e.g. `/root/items[1]/item[3]`.
+/// Formats the path of the node `index`, e.g. `/root/items[0]/item[2]`.
 /// Uses no recursion.
 pub(crate) fn format_path<'a>(
     nodes: &[Node],

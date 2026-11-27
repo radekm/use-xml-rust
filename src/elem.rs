@@ -129,10 +129,10 @@ impl<'doc> Elem<'doc> {
         self.doc.names.raw_name(self.node().raw_name)
     }
 
-    /// Path of the element, e.g. `/root/items[1]/item[3]`.
+    /// Path of the element, e.g. `/root/items[0]/item[2]`.
     ///
     /// Names are written as in the document (with prefixes). The root has no index;
-    /// other elements have a 1-based index among siblings with the same qualified name.
+    /// other elements have a 0-based index among siblings with the same qualified name.
     #[must_use]
     pub fn path(self) -> String {
         self.doc.path(self.index)
@@ -541,9 +541,9 @@ impl<'doc> Elem<'doc> {
     /// let doc = use_xml::parse_str(r#"<r><a x="1"/></r>"#)?;
     /// doc.root().child(NamespaceHandle::NO_NAMESPACE, "a")?;
     /// let error = doc.check_all_used().unwrap_err();
-    /// assert_eq!(error.path(), Some("/r/a[1]"));
+    /// assert_eq!(error.path(), Some("/r/a[0]"));
     /// assert_eq!(error.kind(), &ErrorKind::Unused {
-    ///     path: "/r/a[1]".to_owned(),
+    ///     path: "/r/a[0]".to_owned(),
     ///     position: use_xml::Position { line: 1, column: 4 },
     ///     item: Item::Attr(QualifiedName::new("", "x")),
     /// });

@@ -55,7 +55,7 @@ A Rust library for extracting data from XML, modeled on
    A separate parser `date_time_offset` parses date times with an offset.
 4. `decimal` is strict: an optional leading sign and an optional decimal point only
    (no exponent, no thousands separators, no whitespace).
-5. Errors contain the element path (e.g. `/root/items[1]/item[3]`) in addition to line and column.
+5. Errors contain the element path (e.g. `/root/items[0]/item[2]`) in addition to line and column.
 6. `NamespaceHandle(u8)` (at most 256 namespaces including the empty one and `xml`),
    `QualifiedNameHandle(u32)`.
 7. The XML parser is our own; `quick-xml` is no longer a dependency.
@@ -64,7 +64,7 @@ A Rust library for extracting data from XML, modeled on
 9. Value parsers take `String` (the value is moved out of the document), so `parse::string`
    does not copy. `InvalidValue` therefore does not contain the value;
    the parsers from `parse` put it (cut) into their messages.
-10. Paths use names as written in the document (with prefixes); the index counts siblings
+10. Paths use names as written in the document (with prefixes); the 0-based index counts siblings
     with the same qualified name. Names in errors are `QualifiedName`, displayed as `local`
     or `{namespace}local`.
 11. `check_all_used` orders attributes and child names by their handles, i.e. by the first
