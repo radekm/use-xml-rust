@@ -59,6 +59,9 @@ cargo test
 cargo doc --no-deps
 ```
 
+The same checks run in GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml))
+on every push to `master`; there `cargo doc` fails on warnings (`RUSTDOCFLAGS=-D warnings`).
+
 ## Tests
 
 - Every rule from `docs/en/design.md` has at least one test, including the error cases.

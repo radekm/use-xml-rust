@@ -59,6 +59,9 @@ cargo test
 cargo doc --no-deps
 ```
 
+Stejné kontroly běží v GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml))
+při každém pushi do `master`; tam `cargo doc` selže při varováních (`RUSTDOCFLAGS=-D warnings`).
+
 ## Testy
 
 - Každé pravidlo z `docs/cs/design.md` má alespoň jeden test, včetně chybových případů.
