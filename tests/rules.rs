@@ -614,14 +614,14 @@ fn namespace_errors_are_reported_before_duplicate_attributes() {
                 pos(1, 16),
             ),
         ),
-        // Other attributes are checked in document order.
+        // Also if the undeclared prefix follows the duplicate.
         (
             "<a x='1' x='2' p:y='3'/>",
-            ErrorKind::DuplicateAttr {
-                path: "/a".to_owned(),
-                position: pos(1, 10),
-                name: "x".to_owned(),
-            },
+            namespace("undeclared prefix `p`", pos(1, 16)),
+        ),
+        (
+            "<a xmlns:p='u' xmlns:q='u' p:x='1' q:x='2' r:y='3'/>",
+            namespace("undeclared prefix `r`", pos(1, 44)),
         ),
         (
             "<a p:y='3' x='1' x='2'/>",

@@ -886,6 +886,14 @@ impl<'a> Parser<'a> {
                 return Err(self.namespace_error(tag_start + 1, message));
             }
         };
+        // Undeclared prefixes of attributes are reported before duplicate attributes.
+        for attr in &raw_attrs {
+            let prefix = attr.name.prefix;
+            if !prefix.is_empty() && prefix != "xmlns" && self.lookup_prefix(prefix).is_none() {
+                let message = format!("undeclared prefix `{prefix}`");
+                return Err(self.namespace_error(attr.offset, message));
+            }
+        }
         let qname = self
             .interner
             .name(ns, name.local)
@@ -941,6 +949,7 @@ impl<'a> Parser<'a> {
                 } else if let Some(ns) = self.lookup_prefix(attr.name.prefix) {
                     ns
                 } else {
+                    // Unreachable: undeclared prefixes were reported above.
                     let message = format!("undeclared prefix `{}`", attr.name.prefix);
                     return Err(self.namespace_error(attr.offset, message));
                 };
