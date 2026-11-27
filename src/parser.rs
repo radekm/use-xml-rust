@@ -130,8 +130,8 @@ struct Open<'a> {
     text: String,
     text_significant: bool,
     has_children: bool,
-    /// Length of `Parser::bindings` before the declarations of this element.
-    bindings_len: usize,
+    /// Length of `Parser::undo` before the declarations of this element.
+    undo_len: usize,
 }
 
 struct Parser<'a> {
@@ -143,7 +143,10 @@ struct Parser<'a> {
     nodes: Vec<Node>,
     stack: Vec<Open<'a>>,
     /// In-scope namespace bindings. The prefix `""` is the default namespace.
-    bindings: Vec<(&'a str, NamespaceHandle)>,
+    bindings: BTreeMap<&'a str, NamespaceHandle>,
+    /// Bindings replaced by declarations of open elements (`None` if the prefix was not bound).
+    /// They are restored at the end of the declaring element.
+    undo: Vec<(&'a str, Option<NamespaceHandle>)>,
     /// Reused for the attributes of each start tag.
     raw_attrs: Vec<RawAttr<'a>>,
     /// Whether the encoding in the XML declaration must be UTF-8.
@@ -162,7 +165,8 @@ pub(crate) fn parse(input: &str, check_encoding: bool) -> Result<Document, Error
         interner: Interner::new(),
         nodes: Vec::new(),
         stack: Vec::new(),
-        bindings: vec![("xml", NamespaceHandle::XML)],
+        bindings: BTreeMap::from([("xml", NamespaceHandle::XML)]),
+        undo: Vec::new(),
         raw_attrs: Vec::new(),
         check_encoding,
     };
@@ -711,11 +715,20 @@ impl<'a> Parser<'a> {
     }
 
     fn lookup_prefix(&self, prefix: &str) -> Option<NamespaceHandle> {
-        self.bindings
-            .iter()
-            .rev()
-            .find(|(p, _)| *p == prefix)
-            .map(|(_, ns)| *ns)
+        self.bindings.get(prefix).copied()
+    }
+
+    /// Restores the bindings replaced by the declarations recorded after `undo_len`.
+    fn restore_bindings(&mut self, undo_len: usize) {
+        while self.undo.len() > undo_len {
+            let Some((prefix, previous)) = self.undo.pop() else {
+                break;
+            };
+            match previous {
+                Some(ns) => self.bindings.insert(prefix, ns),
+                None => self.bindings.remove(prefix),
+            };
+        }
     }
 
     /// Checks a namespace declaration and adds the binding.
@@ -754,7 +767,8 @@ impl<'a> Parser<'a> {
             .interner
             .namespace(uri)
             .map_err(|e| self.limit_error(offset, intern_limit(e)))?;
-        self.bindings.push((prefix, ns));
+        let previous = self.bindings.insert(prefix, ns);
+        self.undo.push((prefix, previous));
         Ok(())
     }
 
@@ -817,7 +831,7 @@ impl<'a> Parser<'a> {
         };
 
         // Namespace declarations.
-        let bindings_len = self.bindings.len();
+        let undo_len = self.undo.len();
         for attr in &raw_attrs {
             if attr.name.raw == "xmlns" {
                 self.declare_namespace("", &attr.value, attr.offset)?;
@@ -922,7 +936,7 @@ impl<'a> Parser<'a> {
         }
 
         if empty {
-            self.bindings.truncate(bindings_len);
+            self.restore_bindings(undo_len);
         } else {
             self.stack.push(Open {
                 node: node_index,
@@ -930,7 +944,7 @@ impl<'a> Parser<'a> {
                 text: String::new(),
                 text_significant: false,
                 has_children: false,
-                bindings_len,
+                undo_len,
             });
         }
         Ok(())
@@ -954,7 +968,7 @@ impl<'a> Parser<'a> {
                 ),
             ));
         }
-        self.bindings.truncate(top.bindings_len);
+        self.restore_bindings(top.undo_len);
         let node = &mut self.nodes[top.node as usize];
         node.text_significant = top.text_significant;
         if !top.has_children {

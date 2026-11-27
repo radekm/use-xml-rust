@@ -607,6 +607,62 @@ fn number_of_child_names_is_limited() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn prefix_lookup_does_not_depend_on_number_of_bindings() -> anyhow::Result<()> {
+    // Many bindings in scope: `MAX_DEPTH - 2` elements, each with `MAX_ATTRS - 1` declarations.
+    // The prefix `p` is bound at the root, so a linear search of the bindings
+    // would visit all of them for each prefixed name (several seconds for this document).
+    let declarations: String = (0..MAX_ATTRS - 1)
+        .map(|i| format!(" xmlns:x{i}='u'"))
+        .collect();
+    let attrs: String = (0..MAX_ATTRS - 1).map(|i| format!(" p:a{i}='1'")).collect();
+    let levels = MAX_DEPTH - 2;
+    let input = format!(
+        "<r xmlns:p='urn:p'>{}{}{}</r>",
+        format!("<e{declarations}>").repeat(levels),
+        format!("<p:c{attrs}/>").repeat(20),
+        "</e>".repeat(levels)
+    );
+    let start = std::time::Instant::now();
+    let doc = parse_str(&input)?;
+    let elapsed = start.elapsed();
+    // A generous bound, so the test is reliable also in debug builds on slow machines.
+    assert!(elapsed < std::time::Duration::from_secs(30), "{elapsed:?}");
+    // The bindings are restored after each element.
+    let mut e = doc.root();
+    for _ in 0..levels {
+        e = e.child(NO, "e")?;
+    }
+    let p = doc.namespace("urn:p")?;
+    assert_eq!(e.children(p, "c")?.len(), 20);
+    Ok(())
+}
+
+#[test]
+fn bindings_are_restored_after_elements() -> anyhow::Result<()> {
+    let doc = parse_str(
+        "<a xmlns='urn:1' xmlns:p='urn:p1'>\
+            <b xmlns='urn:2' xmlns:p='urn:p2'><c/><p:c/></b>\
+            <b xmlns=''><c/><p:c/></b>\
+            <b/><p:c/>\
+        </a>",
+    )?;
+    let ns = |uri: &str| doc.namespace(uri);
+    let (n1, n2, p1, p2) = (ns("urn:1")?, ns("urn:2")?, ns("urn:p1")?, ns("urn:p2")?);
+    let a = doc.root();
+    assert_eq!(a.namespace(), n1);
+    a.child(n1, "b")?;
+    let b2 = a.child(n2, "b")?;
+    b2.child(n2, "c")?;
+    b2.child(p2, "c")?;
+    let b0 = a.child(NO, "b")?;
+    b0.child(NO, "c")?;
+    b0.child(p1, "c")?;
+    a.child(p1, "c")?;
+    doc.check_all_used()?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Deep documents with a small stack.
 // ---------------------------------------------------------------------------
