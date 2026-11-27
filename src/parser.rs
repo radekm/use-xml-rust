@@ -488,6 +488,13 @@ impl<'a> Parser<'a> {
         let start = self.pos;
         self.pos += 2;
         let target = self.ncname("processing instruction target")?;
+        // Checked first, so e.g. `<?xml\u{A0}` is not reported as a misplaced XML declaration.
+        if !self.starts_with("?>") && !self.skip_whitespace() && !self.at_end() {
+            return Err(self.xml_error(
+                self.pos,
+                "expected whitespace after processing instruction target",
+            ));
+        }
         if target == "xml" {
             return Err(ErrorKind::UnexpectedNode {
                 node: "XML declaration".to_owned(),
@@ -499,12 +506,6 @@ impl<'a> Parser<'a> {
             return Err(self.xml_error(
                 start,
                 format!("reserved processing instruction target `{target}`"),
-            ));
-        }
-        if !self.starts_with("?>") && !self.skip_whitespace() && !self.at_end() {
-            return Err(self.xml_error(
-                self.pos,
-                "expected whitespace after processing instruction target",
             ));
         }
         let Some(i) = self.find("?>") else {
@@ -894,7 +895,7 @@ impl<'a> Parser<'a> {
             .raw_name(name.raw)
             .map_err(|e| self.limit_error(tag_start, intern_limit(e)))?;
         let Ok(node_index) = u32::try_from(self.nodes.len()) else {
-            return Err(self.xml_error(tag_start, "too many elements"));
+            return Err(self.limit_error(tag_start, Limit::Elements));
         };
         let (parent, index) = match self.stack.last_mut() {
             None => (None, 0),

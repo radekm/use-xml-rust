@@ -150,6 +150,7 @@ Při překročení limitu parsování skončí chybou `LimitExceeded`:
 - `MAX_ATTRS = 1000` atributů jednoho elementu včetně deklarací namespaců.
 - `MAX_CHILD_NAMES = 1000` různých kvalifikovaných jmen dětí jednoho elementu.
   Děti se stejným kvalifikovaným jménem se mohou opakovat libovolněkrát.
+- `u32::MAX + 1` elementů v dokumentu.
 - `MAX_DEPTH = 256` úrovní zanoření (chyba `MaxDepthExceeded`). Kořenový element má hloubku 1.
 
 ### Namespacy

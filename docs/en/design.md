@@ -150,6 +150,7 @@ If a limit is exceeded, parsing fails with `LimitExceeded`:
 - `MAX_ATTRS = 1000` attributes of one element, namespace declarations included.
 - `MAX_CHILD_NAMES = 1000` different qualified names of children of one element.
   Children with the same qualified name can repeat any number of times.
+- `u32::MAX + 1` elements in a document.
 - `MAX_DEPTH = 256` nesting levels (error `MaxDepthExceeded`). The root element has depth 1.
 
 ### Namespaces

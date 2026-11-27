@@ -272,6 +272,22 @@ fn processing_instructions_and_comments_are_checked() {
                 pos(1, 28),
             ),
         ),
+        // `xml` followed by a character which is neither whitespace nor a name character
+        // is not a misplaced XML declaration.
+        (
+            "<?xml\u{A0}version='1.0'?><a/>",
+            xml(
+                "expected whitespace after processing instruction target",
+                pos(1, 6),
+            ),
+        ),
+        (
+            "<a><?xml\u{A0}?></a>",
+            xml(
+                "expected whitespace after processing instruction target",
+                pos(1, 9),
+            ),
+        ),
         ("<!-- a -- b --><a/>", xml("`--` in comment", pos(1, 8))),
         ("<!-- a ---><a/>", xml("`--` in comment", pos(1, 8))),
         ("<a><!-- x</a>", xml("comment not closed", pos(1, 4))),
@@ -876,6 +892,18 @@ fn error_messages() -> anyhow::Result<()> {
         }
         .to_string(),
         "limit exceeded: more than 256 namespaces"
+    );
+    // Limits which cannot be reached in a test.
+    let unreachable = |limit: Limit| {
+        ErrorKind::LimitExceeded {
+            limit,
+            position: Some(pos(1, 1)),
+        }
+        .to_string()
+    };
+    assert_eq!(
+        unreachable(Limit::Elements),
+        "limit exceeded at line 1, column 1: more than 4294967296 elements"
     );
     assert_eq!(
         message("<a>\n&foo;</a>"),

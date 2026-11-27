@@ -86,6 +86,8 @@ pub enum Limit {
     Attrs,
     /// [`MAX_CHILD_NAMES`](crate::MAX_CHILD_NAMES).
     ChildNames,
+    /// The number of elements in a document (`u32::MAX + 1`).
+    Elements,
 }
 
 impl fmt::Display for Limit {
@@ -102,6 +104,7 @@ impl fmt::Display for Limit {
                 f,
                 "element with children with more than {MAX_CHILD_NAMES} different names"
             ),
+            Limit::Elements => write!(f, "more than {} elements", u64::from(u32::MAX) + 1),
         }
     }
 }
