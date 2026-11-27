@@ -100,6 +100,95 @@ fn invalid_names_are_rejected() {
 }
 
 #[test]
+fn boundaries_of_name_character_classes() {
+    // Characters which can start a name (the bounds of the ranges of `NameStartChar`).
+    let start = [
+        'A',
+        'Z',
+        '_',
+        'a',
+        'z',
+        '\u{C0}',
+        '\u{D6}',
+        '\u{D8}',
+        '\u{F6}',
+        '\u{F8}',
+        '\u{2FF}',
+        '\u{370}',
+        '\u{37D}',
+        '\u{37F}',
+        '\u{1FFF}',
+        '\u{200C}',
+        '\u{200D}',
+        '\u{2070}',
+        '\u{218F}',
+        '\u{2C00}',
+        '\u{2FEF}',
+        '\u{3001}',
+        '\u{D7FF}',
+        '\u{F900}',
+        '\u{FDCF}',
+        '\u{FDF0}',
+        '\u{FFFD}',
+        '\u{10000}',
+        '\u{EFFFF}',
+    ];
+    // Characters which can only follow the first character (`NameChar` without `NameStartChar`).
+    let later = [
+        '-', '.', '0', '9', '\u{B7}', '\u{300}', '\u{36F}', '\u{203F}', '\u{2040}',
+    ];
+    // Characters just outside of the ranges, allowed by `Char` but not in names.
+    let none = [
+        '@',
+        '[',
+        '`',
+        '{',
+        '\u{BF}',
+        '\u{D7}',
+        '\u{F7}',
+        '\u{37E}',
+        '\u{2000}',
+        '\u{200B}',
+        '\u{200E}',
+        '\u{206F}',
+        '\u{2190}',
+        '\u{2BFF}',
+        '\u{2FF0}',
+        '\u{3000}',
+        '\u{E000}',
+        '\u{F8FF}',
+        '\u{FDD0}',
+        '\u{FDEF}',
+        '\u{F0000}',
+        '\u{10FFFF}',
+    ];
+    for c in start {
+        assert!(parse_str(&format!("<{c}/>")).is_ok(), "{c:?}");
+        assert!(parse_str(&format!("<a{c}/>")).is_ok(), "{c:?}");
+    }
+    for c in later {
+        assert_eq!(
+            parse_str(&format!("<{c}/>")).unwrap_err(),
+            xml("expected element name", pos(1, 2)),
+            "{c:?}"
+        );
+        assert!(parse_str(&format!("<a{c}/>")).is_ok(), "{c:?}");
+    }
+    for c in none {
+        assert_eq!(
+            parse_str(&format!("<{c}/>")).unwrap_err(),
+            xml("expected element name", pos(1, 2)),
+            "{c:?}"
+        );
+        assert_eq!(
+            parse_str(&format!("<a{c}/>")).unwrap_err(),
+            xml("expected whitespace, `>`, or `/>`", pos(1, 3)),
+            "{c:?}"
+        );
+    }
+}
+
+#[test]
 fn whitespace_is_required_between_attributes() {
     check(&[
         (
@@ -525,6 +614,19 @@ fn namespace_errors_are_reported_before_duplicate_attributes() {
                 pos(1, 16),
             ),
         ),
+        // Other attributes are checked in document order.
+        (
+            "<a x='1' x='2' p:y='3'/>",
+            ErrorKind::DuplicateAttr {
+                path: "/a".to_owned(),
+                position: pos(1, 10),
+                name: "x".to_owned(),
+            },
+        ),
+        (
+            "<a p:y='3' x='1' x='2'/>",
+            namespace("undeclared prefix `p`", pos(1, 4)),
+        ),
     ]);
 }
 
@@ -576,6 +678,11 @@ fn name_length_is_limited_in_bytes() -> anyhow::Result<()> {
             limit(Limit::NameLen, pos(1, 7)),
         ),
     ]);
+    // Names in end tags are limited too.
+    check(&[(
+        &format!("<a></{}>", "a".repeat(MAX_NAME_LEN + 1)),
+        limit(Limit::NameLen, pos(1, 6)),
+    )]);
     // Processing instruction targets and entity names exactly at the limit are accepted
     // (the entity is then unknown).
     parse_str(&format!("<?{max} x?><a/>"))?;
@@ -595,8 +702,20 @@ fn prefix_length_is_limited() -> anyhow::Result<()> {
     let doc = parse_str(&format!("<{max}:a xmlns:{max}='u' {max}:x='1'/>"))?;
     let u = doc.namespace("u")?;
     assert_eq!(doc.root().attr(u, "x", parse::u8)?, 1);
+    // A prefix and a local name both exactly at their limits.
+    let local = "l".repeat(MAX_NAME_LEN);
+    let doc = parse_str(&format!(
+        "<{max}:{local} xmlns:{max}='u' {max}:{local}='1'></{max}:{local}>"
+    ))?;
+    assert_eq!(doc.root().local_name(), local);
+    let u = doc.namespace("u")?;
+    assert_eq!(doc.root().attr(u, &local, parse::u8)?, 1);
     let long = "p".repeat(MAX_PREFIX_LEN + 1);
     check(&[
+        (
+            &format!("<a></{long}:a>"),
+            limit(Limit::PrefixLen, pos(1, 6)),
+        ),
         (&format!("<{long}:a/>"), limit(Limit::PrefixLen, pos(1, 2))),
         (
             &format!("<a {long}:x='1'/>"),
