@@ -481,6 +481,27 @@ fn duplicate_attributes() {
 }
 
 #[test]
+fn namespace_errors_are_reported_before_duplicate_attributes() {
+    check(&[
+        (
+            "<a p:x='1' p:x='2'/>",
+            namespace("undeclared prefix `p`", pos(1, 4)),
+        ),
+        (
+            "<q:a x='1' x='2'/>",
+            namespace("undeclared prefix `q`", pos(1, 2)),
+        ),
+        (
+            "<a xmlns:p='u' xmlns:p=''/>",
+            namespace(
+                "prefix `p` must not be bound to the empty namespace",
+                pos(1, 16),
+            ),
+        ),
+    ]);
+}
+
+#[test]
 fn same_local_name_in_different_namespaces_is_not_duplicate() -> anyhow::Result<()> {
     let doc = parse_str(
         "<e xmlns:a='urn:a' xmlns:b='urn:b' a:x='1' b:x='2' x='3' xml:lang='cs' lang='en'/>",

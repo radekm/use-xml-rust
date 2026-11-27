@@ -171,6 +171,8 @@ If a limit is exceeded, parsing fails with `LimitExceeded`:
 - Two attributes of one element with the same name as written, or with the same namespace and local name
   (e.g. `a:x` and `b:x` when `a` and `b` are bound to the same namespace), are a `DuplicateAttr` error.
   This includes duplicate namespace declarations. `xml:lang` and `lang` are different attributes.
+- Namespace errors in a start tag (e.g. an undeclared prefix) are reported before duplicate attributes,
+  because the path in `DuplicateAttr` needs the namespace of the element.
 
 ### Content
 

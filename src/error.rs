@@ -5,8 +5,9 @@ use std::fmt;
 
 use crate::names::QualifiedName;
 
-/// Maximum number of characters of a value stored in [`ErrorKind::InvalidValue`]
-/// and shown by the `Debug` implementation of [`Elem`](crate::Elem).
+/// Maximum number of characters of a value shown in messages of the parsers
+/// from the [`parse`](crate::parse) module, in [`ErrorKind::InvalidName`]
+/// and [`ErrorKind::InvalidNamespace`], and by the `Debug` implementation of [`Elem`](crate::Elem).
 /// Longer values are cut and end with `…`.
 pub const MAX_VALUE_CHARS: usize = 100;
 

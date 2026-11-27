@@ -272,13 +272,16 @@ fn namespace_handle_of_another_document_is_rejected() -> anyhow::Result<()> {
     let other = parse_str("<a/>")?;
     let ns = other.namespace("urn:other")?;
     assert_eq!(doc.namespace_uri(ns), None);
-    assert_eq!(
-        doc.root().attr_opt(ns, "x", parse::string).unwrap_err(),
-        ErrorKind::InvalidNamespaceHandle {
-            path: "/a".to_owned(),
-            position: pos(1, 1)
-        }
-    );
+    let invalid = ErrorKind::InvalidNamespaceHandle {
+        path: "/a".to_owned(),
+        position: pos(1, 1),
+    };
+    let e = doc.root();
+    assert_eq!(e.attr_opt(ns, "x", parse::string).unwrap_err(), invalid);
+    assert_eq!(e.attr(ns, "x", parse::string).unwrap_err(), invalid);
+    assert_eq!(e.child(ns, "x").unwrap_err(), invalid);
+    assert_eq!(e.child_opt(ns, "x").unwrap_err(), invalid);
+    assert_eq!(e.children(ns, "x").unwrap_err(), invalid);
     Ok(())
 }
 
@@ -1334,6 +1337,28 @@ fn value_parser_can_use_the_same_element() -> anyhow::Result<()> {
     })?;
     assert_eq!(x, "12");
     e.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn text_parser_can_use_the_same_element_and_document() -> anyhow::Result<()> {
+    // Usage tracking and the names must not be borrowed while a value parser runs.
+    let doc = parse_str(r#"<a x="1">t</a>"#)?;
+    let e = doc.root();
+    let text = e.text(|s| -> Result<String, use_xml::Error> {
+        assert!(format!("{e:?}").contains("text: <used>"));
+        let ns = e.document().namespace("urn:new")?;
+        assert!(e.children(ns, "b")?.is_empty());
+        assert_eq!(e.attr(NO, "x", parse::u8)?, 1);
+        assert_eq!(
+            e.text(parse::string).unwrap_err(),
+            already_used("/a", pos(1, 1), Item::Text)
+        );
+        e.check_all_used()?;
+        Ok(s)
+    })?;
+    assert_eq!(text, "t");
+    doc.check_all_used()?;
     Ok(())
 }
 

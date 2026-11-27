@@ -171,6 +171,8 @@ Při překročení limitu parsování skončí chybou `LimitExceeded`:
 - Dva atributy jednoho elementu se stejným zapsaným jménem nebo se stejným namespacem a lokálním jménem
   (např. `a:x` a `b:x`, když jsou `a` i `b` vázané na stejný namespace) jsou chyba `DuplicateAttr`.
   Patří sem i duplicitní deklarace namespaců. `xml:lang` a `lang` jsou různé atributy.
+- Chyby namespaců v počátečním tagu (např. nedeklarovaný prefix) se hlásí před duplicitními atributy,
+  protože cesta v `DuplicateAttr` potřebuje namespace elementu.
 
 ### Obsah
 

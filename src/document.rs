@@ -205,8 +205,8 @@ pub(crate) fn intern_limit(e: InternError) -> Limit {
 ///
 /// The document must be well-formed and namespace-well-formed XML 1.0
 /// and follow the rules of this library (no `DOCTYPE`, no mixed content, limits).
-/// A leading byte order mark is skipped. The encoding in the XML declaration is ignored
-/// because the input is already decoded.
+/// A leading byte order mark is skipped. The encoding in the XML declaration is checked
+/// only syntactically because the input is already decoded.
 ///
 /// ```
 /// let doc = use_xml::parse_str("<animals><dog>A</dog><dog>D</dog></animals>")?;
