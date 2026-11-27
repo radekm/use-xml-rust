@@ -228,7 +228,9 @@ impl Interner {
     }
 
     pub(crate) fn get_raw_name(&self, handle: u32) -> &str {
-        self.raw_names.get(handle as usize).map_or("", |s| s)
+        // Handles are created only by `raw_name` of this interner
+        // and raw names are never removed.
+        &self.raw_names[handle as usize]
     }
 
     pub(crate) fn finish(self) -> NameTable {
@@ -337,6 +339,8 @@ impl NameTable {
     }
 
     pub(crate) fn raw_name(&self, handle: u32) -> &str {
-        self.raw_names.get(handle as usize).map_or("", |s| s)
+        // Handles are created only by `Interner::raw_name` while parsing this document,
+        // `finish` moves all raw names here, and raw names are never removed.
+        &self.raw_names[handle as usize]
     }
 }
