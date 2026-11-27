@@ -96,7 +96,10 @@ jsou ve druhé úrovni v `RefCell`; jejich handly pokračují za handly parseru.
 
 `NamespaceHandle` patří jednomu dokumentu. Použití handlu mimo rozsah dokumentu
 je chyba `InvalidNamespaceHandle`; handle jiného dokumentu, který náhodou do rozsahu padne,
-odhalit nelze.
+odhalit nelze. Takový handle tiše znamená namespace tohoto dokumentu se stejným indexem,
+takže požadavky najdou špatné položky nebo nic. Handly je proto třeba získat pomocí
+`Document::namespace` pro každý naparsovaný dokument; jen `NamespaceHandle::NO_NAMESPACE`
+a `NamespaceHandle::XML` jsou stejné ve všech dokumentech.
 
 Vyžádaná jména se kontrolují stejně jako jména v dokumentu, takže požadavek, který nikdy nemůže
 nic najít, je chyba místo tiše chybějící položky:
@@ -324,7 +327,7 @@ a `Error` lze přímo porovnávat s `ErrorKind`. Varianty `ErrorKind`:
   (první jiný než bílý znak, začátek sekce CDATA nebo `&` reference).
 - `DuplicateAttr` – cesta elementu, pozice a jméno (jak je zapsané) druhého atributu.
 - `MaxDepthExceeded` – cesta nejhlubšího povoleného elementu, pozice dítěte, které limit porušilo.
-- `InvalidNamespaceHandle` – handle namespacu, který nepatří k dokumentu.
+- `InvalidNamespaceHandle` – handle namespacu mimo rozsah dokumentu.
 - `InvalidNamespace` – `Document::namespace` dostal jméno namespacu, které se v dokumentu nemůže vyskytnout.
 - `InvalidName` – `attr`, `child`, … dostaly lokální jméno, které není `NCName` nebo je příliš dlouhé.
 - `Missing` – chybí povinný atribut nebo dítě (`attr`, `child`).

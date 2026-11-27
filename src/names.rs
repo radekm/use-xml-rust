@@ -37,6 +37,24 @@ pub(crate) const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
 ///
 /// Get it by [`Document::namespace`](crate::Document::namespace).
 /// A handle is valid only for the document which created it.
+///
+/// A handle is just an index, so the library cannot reliably detect a handle of another document.
+/// It reports [`ErrorKind::InvalidNamespaceHandle`](crate::ErrorKind::InvalidNamespaceHandle)
+/// only if the handle is out of range of the document. A handle of another document
+/// which is in range silently means a different namespace (the one with the same index),
+/// so requests then find wrong items or nothing. Always get handles from the document
+/// you extract from, e.g. call [`Document::namespace`](crate::Document::namespace)
+/// again for every parsed document. Only [`NamespaceHandle::NO_NAMESPACE`]
+/// and [`NamespaceHandle::XML`] are the same in all documents.
+///
+/// ```
+/// let a = use_xml::parse_str("<a xmlns='urn:a'><x/></a>")?;
+/// let b = use_xml::parse_str("<b xmlns='urn:b'><x/></b>")?;
+/// let ns_a = a.namespace("urn:a")?;
+/// // Wrong: the handle of `a` is used with `b` and silently means `urn:b`.
+/// assert_eq!(b.root().child(ns_a, "x")?.namespace_uri(), "urn:b");
+/// # Ok::<(), use_xml::Error>(())
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NamespaceHandle(pub(crate) u8);
 

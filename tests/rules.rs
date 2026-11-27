@@ -1087,7 +1087,7 @@ fn error_messages() -> anyhow::Result<()> {
     let other = other_doc.namespace("urn:2")?;
     assert_eq!(
         e.child(other, "c").unwrap_err().to_string(),
-        "element /r at line 1, column 1 received a namespace handle of another document"
+        "element /r at line 1, column 1 received a namespace handle which does not belong to the document"
     );
     // `child` marked `b` as used even though it failed.
     e.check_all_used()?;

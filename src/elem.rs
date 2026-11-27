@@ -232,7 +232,8 @@ impl<'doc> Elem<'doc> {
     ///
     /// - [`ErrorKind::AlreadyUsed`] if the attribute was already requested.
     /// - [`ErrorKind::InvalidValue`] if `parser` fails.
-    /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is from another document.
+    /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is out of range of the document
+    ///   (a handle of another document is not always detected, see [`NamespaceHandle`]).
     /// - [`ErrorKind::InvalidName`] if `local_name` is not an `NCName`
     ///   or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
     /// - [`ErrorKind::LimitExceeded`] with [`Limit::QualifiedNames`](crate::Limit::QualifiedNames)
@@ -401,7 +402,8 @@ impl<'doc> Elem<'doc> {
     /// # Errors
     ///
     /// - [`ErrorKind::AlreadyUsed`] if children with this name were already requested.
-    /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is from another document.
+    /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is out of range of the document
+    ///   (a handle of another document is not always detected, see [`NamespaceHandle`]).
     /// - [`ErrorKind::InvalidName`] if `local_name` is not an `NCName`
     ///   or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
     /// - [`ErrorKind::LimitExceeded`] with [`Limit::QualifiedNames`](crate::Limit::QualifiedNames)

@@ -96,7 +96,10 @@ are kept in a second level in a `RefCell`; their handles continue after the hand
 
 A `NamespaceHandle` belongs to one document. Using a handle which is out of range
 of the document is the error `InvalidNamespaceHandle`; a handle of another document
-which happens to be in range cannot be detected.
+which happens to be in range cannot be detected. Such a handle silently means the namespace
+of this document with the same index, so requests find wrong items or nothing.
+Handles must therefore be obtained by `Document::namespace` for every parsed document;
+only `NamespaceHandle::NO_NAMESPACE` and `NamespaceHandle::XML` are the same in all documents.
 
 Requested names are checked like the names in the document, so a request which can never
 match is an error instead of a silently missing item:
@@ -324,7 +327,7 @@ and `Error` can be compared with `ErrorKind` directly. Variants of `ErrorKind`:
   (the first non-whitespace character, the start of the CDATA section, or `&` of the reference).
 - `DuplicateAttr` – the path of the element, the position and the name (as written) of the second attribute.
 - `MaxDepthExceeded` – path of the deepest allowed element, position of the offending child.
-- `InvalidNamespaceHandle` – a namespace handle which does not belong to the document.
+- `InvalidNamespaceHandle` – a namespace handle which is out of range of the document.
 - `InvalidNamespace` – `Document::namespace` received a namespace name which cannot occur in a document.
 - `InvalidName` – `attr`, `child`, … received a local name which is not an `NCName` or is too long.
 - `Missing` – a required attribute or child (`attr`, `child`) is missing.

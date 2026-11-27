@@ -256,8 +256,13 @@ pub enum ErrorKind {
         max_depth: usize,
     },
 
-    /// A [`NamespaceHandle`](crate::NamespaceHandle) which does not belong to the document.
-    #[error("element {path} at {position} received a namespace handle of another document")]
+    /// A [`NamespaceHandle`](crate::NamespaceHandle) which is out of range of the document.
+    ///
+    /// A handle of another document which is in range is not detected,
+    /// see [`NamespaceHandle`](crate::NamespaceHandle).
+    #[error(
+        "element {path} at {position} received a namespace handle which does not belong to the document"
+    )]
     InvalidNamespaceHandle {
         /// Path of the element.
         path: String,
