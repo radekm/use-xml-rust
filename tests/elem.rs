@@ -410,9 +410,30 @@ fn mixed_content_text_before_child() {
         parse_str(input).unwrap_err(),
         ErrorKind::MixedContent {
             path: "/country".to_owned(),
-            position: pos(1, 1)
+            position: pos(2, 3)
         }
     );
+}
+
+#[test]
+fn mixed_content_points_to_the_first_significant_text() {
+    // Whitespace, comments, and processing instructions before the text are skipped,
+    // the first significant text is reported even if more text follows.
+    let mixed = |position| ErrorKind::MixedContent {
+        path: "/a".to_owned(),
+        position,
+    };
+    let cases = [
+        (
+            "<a>\r\n \t<!-- c --><?pi?> čx<!---->y<b/></a>",
+            mixed(pos(2, 20)),
+        ),
+        ("<a> &#32; <![CDATA[x]]>y<b/></a>", mixed(pos(1, 11))),
+        ("<a><b/>\n <!-- c -->\n  &lt;</a>", mixed(pos(3, 3))),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(parse_str(input).unwrap_err(), expected, "{input:?}");
+    }
 }
 
 #[test]
@@ -421,7 +442,7 @@ fn mixed_content_text_after_child() {
         parse_str("<r><a><b/>text</a></r>").unwrap_err(),
         ErrorKind::MixedContent {
             path: "/r/a[1]".to_owned(),
-            position: pos(1, 4)
+            position: pos(1, 11)
         }
     );
 }
@@ -432,7 +453,7 @@ fn mixed_content_cdata_after_child() {
         parse_str("<r>\n<a><b/><![CDATA[]]></a></r>").unwrap_err(),
         ErrorKind::MixedContent {
             path: "/r/a[1]".to_owned(),
-            position: pos(2, 1)
+            position: pos(2, 8)
         }
     );
 }
@@ -443,7 +464,7 @@ fn mixed_content_entity_reference_after_child() {
         parse_str("<a><b/>&amp;</a>").unwrap_err(),
         ErrorKind::MixedContent {
             path: "/a".to_owned(),
-            position: pos(1, 1)
+            position: pos(1, 8)
         }
     );
 }
@@ -454,7 +475,7 @@ fn mixed_content_entity_reference_before_child() {
         parse_str("<a>&#65;<b/></a>").unwrap_err(),
         ErrorKind::MixedContent {
             path: "/a".to_owned(),
-            position: pos(1, 1)
+            position: pos(1, 4)
         }
     );
 }
@@ -1321,14 +1342,14 @@ fn error_kind_accessors() {
     let error = parse_str("<a><b/>x</a>").unwrap_err();
     let expected = ErrorKind::MixedContent {
         path: "/a".to_owned(),
-        position: pos(1, 1),
+        position: pos(1, 8),
     };
     assert_eq!(error.kind(), &expected);
     assert_eq!(error, expected);
     assert_eq!(Error::from(expected.clone()), error);
     assert_eq!(
         error.to_string(),
-        "element /a at line 1, column 1 contains mixed content"
+        "element /a contains mixed content at line 1, column 8"
     );
     assert_eq!(format!("{error:?}"), format!("{expected:?}"));
     assert_eq!(error.into_kind(), expected);
@@ -1441,7 +1462,7 @@ fn mixed_content_whitespace_cdata_before_child() {
         parse_str("<r>\n<a><![CDATA[ ]]><b/></a></r>").unwrap_err(),
         ErrorKind::MixedContent {
             path: "/r/a[1]".to_owned(),
-            position: pos(2, 1)
+            position: pos(2, 4)
         }
     );
 }

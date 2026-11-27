@@ -115,7 +115,7 @@ impl fmt::Display for Limit {
 /// let error = use_xml::parse_str("<r>\n  <a><b/>text</a></r>").unwrap_err();
 /// assert!(matches!(error.kind(), ErrorKind::MixedContent { .. }));
 /// assert_eq!(error.path(), Some("/r/a[1]"));
-/// assert_eq!(error.position(), Some(use_xml::Position { line: 2, column: 3 }));
+/// assert_eq!(error.position(), Some(use_xml::Position { line: 2, column: 10 }));
 /// ```
 #[derive(Clone, PartialEq, Eq, thiserror::Error)]
 #[error(transparent)]
@@ -228,11 +228,12 @@ pub enum ErrorKind {
     },
 
     /// An element contains both child elements and significant text.
-    #[error("element {path} at {position} contains mixed content")]
+    #[error("element {path} contains mixed content at {position}")]
     MixedContent {
         /// Path of the element.
         path: String,
-        /// Position of the element.
+        /// Position of the significant text: its first non-whitespace character,
+        /// the start of the CDATA section, or `&` of the reference.
         position: Position,
     },
 
@@ -385,7 +386,8 @@ impl ErrorKind {
     /// [`Encoding`](Self::Encoding), [`UnexpectedNode`](Self::UnexpectedNode),
     /// [`LimitExceeded`](Self::LimitExceeded), and [`UnknownEntity`](Self::UnknownEntity),
     /// the position of the offending attribute or child for [`DuplicateAttr`](Self::DuplicateAttr)
-    /// and [`MaxDepthExceeded`](Self::MaxDepthExceeded), and otherwise the position
+    /// and [`MaxDepthExceeded`](Self::MaxDepthExceeded), the position of the significant text
+    /// for [`MixedContent`](Self::MixedContent), and otherwise the position
     /// of the element given by [`path`](Self::path).
     ///
     /// Returns `None` only for [`LimitExceeded`](Self::LimitExceeded)

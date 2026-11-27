@@ -134,7 +134,9 @@ struct Open<'a> {
     node: u32,
     raw_name: &'a str,
     text: String,
-    text_significant: bool,
+    /// Offset of the first significant text (its first non-whitespace character,
+    /// `<![CDATA[`, or `&` of a reference), `None` if the text is not significant.
+    significant_at: Option<usize>,
     has_children: bool,
     /// Length of `Parser::undo` before the declarations of this element.
     undo_len: usize,
@@ -537,9 +539,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 b'&' => {
+                    let amp = self.pos;
                     let mut text = String::new();
                     self.reference(&mut text)?;
-                    self.add_text(&text, false)?;
+                    self.add_text(&text, false, amp)?;
                 }
                 _ => self.char_data()?,
             }
@@ -558,12 +561,18 @@ impl<'a> Parser<'a> {
             return Err(self.xml_error(start + i, "`]]>` in text"));
         }
         self.pos = start + len;
+        // The offset of the first non-whitespace character (used only if there is one).
+        let offset = start
+            + raw
+                .bytes()
+                .position(|b| !is_whitespace_byte(b))
+                .unwrap_or(0);
         if raw.contains('\r') {
             let mut text = String::with_capacity(raw.len());
             push_normalized(&mut text, raw);
-            self.add_text(&text, false)
+            self.add_text(&text, false, offset)
         } else {
-            self.add_text(raw, false)
+            self.add_text(raw, false, offset)
         }
     }
 
@@ -577,12 +586,13 @@ impl<'a> Parser<'a> {
         self.pos = end + 3;
         let mut text = String::new();
         push_normalized(&mut text, raw);
-        self.add_text(&text, true)
+        self.add_text(&text, true, start)
     }
 
     /// Adds text to the innermost open element. CDATA is always significant,
     /// other text if it contains a non-whitespace character.
-    fn add_text(&mut self, text: &str, cdata: bool) -> Result<(), Error> {
+    /// `offset` is where significant text starts (for errors).
+    fn add_text(&mut self, text: &str, cdata: bool, offset: usize) -> Result<(), Error> {
         let significant = cdata || !is_whitespace(text);
         let Some(top) = self.stack.last_mut() else {
             return Ok(());
@@ -590,9 +600,9 @@ impl<'a> Parser<'a> {
         if significant {
             if top.has_children {
                 let node = top.node;
-                return Err(self.mixed_content(node));
+                return Err(self.mixed_content(node, offset));
             }
-            top.text_significant = true;
+            top.significant_at.get_or_insert(offset);
             top.text.push_str(text);
         } else if !top.has_children {
             // Whitespace is kept only if the element has no children.
@@ -601,10 +611,11 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn mixed_content(&self, node: u32) -> Error {
+    /// Mixed content in `node`; `offset` is the significant text.
+    fn mixed_content(&mut self, node: u32, offset: usize) -> Error {
         ErrorKind::MixedContent {
             path: self.path(node),
-            position: self.nodes[node as usize].position,
+            position: self.position(offset),
         }
         .into()
     }
@@ -802,8 +813,8 @@ impl<'a> Parser<'a> {
                 }
                 .into());
             }
-            if top.text_significant {
-                return Err(self.mixed_content(parent));
+            if let Some(offset) = top.significant_at {
+                return Err(self.mixed_content(parent, offset));
             }
         }
         let position = self.position(tag_start);
@@ -959,7 +970,7 @@ impl<'a> Parser<'a> {
                 node: node_index,
                 raw_name: name.raw,
                 text: String::new(),
-                text_significant: false,
+                significant_at: None,
                 has_children: false,
                 undo_len,
             });
@@ -987,7 +998,7 @@ impl<'a> Parser<'a> {
         }
         self.restore_bindings(top.undo_len);
         let node = &mut self.nodes[top.node as usize];
-        node.text_significant = top.text_significant;
+        node.text_significant = top.significant_at.is_some();
         if !top.has_children {
             *node.text.get_mut() = Some(top.text.into_boxed_str());
         }

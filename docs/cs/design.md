@@ -316,7 +316,8 @@ a `Error` lze přímo porovnávat s `ErrorKind`. Varianty `ErrorKind`:
   (`None` jen z `Document::namespace`).
 - `UnknownEntity` – reference na entitu, která není předdefinovaná ani znaková reference;
   pozice ukazuje na `&`.
-- `MixedContent`
+- `MixedContent` – cesta elementu a pozice jeho významného textu
+  (první jiný než bílý znak, začátek sekce CDATA nebo `&` reference).
 - `DuplicateAttr` – cesta elementu, pozice a jméno (jak je zapsané) druhého atributu.
 - `MaxDepthExceeded` – cesta nejhlubšího povoleného elementu, pozice dítěte, které limit porušilo.
 - `InvalidNamespaceHandle` – handle namespacu, který nepatří k dokumentu.

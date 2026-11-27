@@ -64,7 +64,7 @@ fn non_xml_whitespace_is_significant() -> anyhow::Result<()> {
             parse_str(&format!("<r>\n<a>{ws}<b/></a></r>")).unwrap_err(),
             ErrorKind::MixedContent {
                 path: "/r/a[1]".to_owned(),
-                position: pos(2, 1)
+                position: pos(2, 4)
             },
             "{ws:?}"
         );
@@ -851,7 +851,7 @@ fn error_messages() -> anyhow::Result<()> {
     );
     assert_eq!(
         message("<a><b/>x</a>"),
-        "element /a at line 1, column 1 contains mixed content"
+        "element /a contains mixed content at line 1, column 8"
     );
     assert_eq!(
         message(&"<a>".repeat(MAX_DEPTH + 1)),

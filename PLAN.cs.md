@@ -76,6 +76,8 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
 14. Vyžádaná jména se kontrolují jako jména v dokumentu: neplatné lokální jméno je
     `InvalidName`, neplatné jméno namespacu v `Document::namespace` je `InvalidNamespace`
     (nebo `LimitExceeded`, pokud je příliš dlouhé). Nekontroluje se, že jména namespaců jsou URI.
+15. `MixedContent` ukazuje na významný text (před dětskými elementy nebo za nimi),
+    ne na element.
 
 ## Otevřené otázky
 

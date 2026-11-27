@@ -316,7 +316,8 @@ and `Error` can be compared with `ErrorKind` directly. Variants of `ErrorKind`:
   (`None` only from `Document::namespace`).
 - `UnknownEntity` – an entity reference which is neither predefined nor a character reference;
   the position points to `&`.
-- `MixedContent`
+- `MixedContent` – the path of the element and the position of its significant text
+  (the first non-whitespace character, the start of the CDATA section, or `&` of the reference).
 - `DuplicateAttr` – the path of the element, the position and the name (as written) of the second attribute.
 - `MaxDepthExceeded` – path of the deepest allowed element, position of the offending child.
 - `InvalidNamespaceHandle` – a namespace handle which does not belong to the document.
