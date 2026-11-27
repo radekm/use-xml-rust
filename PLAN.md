@@ -31,6 +31,21 @@ A Rust library for extracting data from XML, modeled on
       because it is synchronous.
 - [x] 10. Benchmark ported from UseData.Xml using criterion (`cargo bench`, see `benches/`).
 
+### Rewrite according to `NEW-SPEC.cs.md`
+
+- [x] 11. Own checking parser of XML 1.0 and Namespaces 1.0 (`quick-xml` removed):
+      names, characters, XML declaration, comments, processing instructions, CDATA,
+      references, attribute value normalization, namespace declarations and reserved prefixes.
+- [x] 12. Limits `MAX_NAME_LEN`, `MAX_PREFIX_LEN`, `MAX_NAMESPACE_LEN`, `MAX_NAMESPACES`,
+      `MAX_ATTRS`, `MAX_CHILD_NAMES` with the error `LimitExceeded`.
+- [x] 13. Interning of namespaces (`NamespaceHandle(u8)`) and qualified names
+      (`QualifiedNameHandle(u32)`).
+- [x] 14. `Document` with an arena of nodes and `Elem<'doc>` as a `Copy` handle;
+      attribute values and texts are moved out on use, missing names are recorded in the maps.
+- [x] 15. API with namespaces (`doc.namespace`, `attr(ns, name, parser)`, `child(ns, name)`, …),
+      value parsers `FnOnce(String) -> Result<T, E>`.
+- [x] 16. Tests, benchmark, and documentation updated.
+
 ## Decisions
 
 1. Integers are parsed strictly with Rust `from_str` (optional `+`/`-`, no whitespace).
@@ -41,6 +56,23 @@ A Rust library for extracting data from XML, modeled on
 4. `decimal` is strict: an optional leading sign and an optional decimal point only
    (no exponent, no thousands separators, no whitespace).
 5. Errors contain the element path (e.g. `/root/items[1]/item[3]`) in addition to line and column.
+6. `NamespaceHandle(u8)` (at most 256 namespaces including the empty one and `xml`),
+   `QualifiedNameHandle(u32)`.
+7. The XML parser is our own; `quick-xml` is no longer a dependency.
+8. Elements live in an arena owned by `Document`; `Elem<'doc>` is a handle (document reference + index),
+   the parent is an index. The lifetime guarantees that the document outlives its elements.
+9. Value parsers take `String` (the value is moved out of the document), so `parse::string`
+   does not copy. `InvalidValue` therefore does not contain the value;
+   the parsers from `parse` put it (cut) into their messages.
+10. Paths use names as written in the document (with prefixes); the index counts siblings
+    with the same qualified name. Names in errors are `QualifiedName`, displayed as `local`
+    or `{namespace}local`.
+11. `check_all_used` orders attributes and child names by their handles, i.e. by the first
+    occurrence of the qualified name in the document (previously alphabetically).
+12. `MAX_NAME_LEN` applies to the local name (the prefix has its own limit),
+    to processing instruction targets, and to entity names. `MAX_ATTRS` counts namespace declarations too.
+13. Namespace-well-formedness errors are reported as `ErrorKind::Namespace`.
+    `UnknownEntity` has no path (it may be in a start tag whose element does not exist yet).
 
 ## Open questions
 

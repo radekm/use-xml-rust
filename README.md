@@ -9,7 +9,8 @@ A Rust library for extracting data from XML documents, modeled on the F# library
 
 ## Idea
 
-The document is parsed into a tree of elements. You request attributes, children, and text,
+The document is parsed by a strict parser of XML 1.0 with namespaces into a `Document`.
+You request attributes, children, and text by a namespace and a local name,
 and convert them with value parsers. Each piece of the document can be used only once.
 At the end you call `check_all_used`, which fails if some attribute, text, or child
 was not used, so changes in the input format are not silently ignored.
@@ -19,19 +20,23 @@ use use_xml::parse;
 
 fn main() -> Result<(), use_xml::Error> {
     let xml = r#"
-        <people>
-            <person name="Pete" />
-            <person name="Harry" address="Little Whinging" />
-        </people>
+        <x xmlns:edi='http://ecommerce.example.org/schema'>
+            <lineItem edi:taxClass="exempt">Baby food</lineItem>
+            <lineItem edi:taxClass="standard">Milk</lineItem>
+        </x>
     "#;
-    let root = use_xml::parse_str(xml)?;
-    let people = root
-        .children("person")?
-        .iter()
-        .map(|p| Ok((p.attr("name", parse::string)?, p.attr_opt("address", parse::string)?)))
+    let doc = use_xml::parse_str(xml)?;
+    // Namespaces which do not exist in the document are interned too.
+    let default_ns = doc.namespace("")?;
+    let edi_ns = doc.namespace("http://ecommerce.example.org/schema")?;
+    let items = doc
+        .root()
+        .children(default_ns, "lineItem")?
+        .into_iter()
+        .map(|item| Ok((item.text(parse::string)?, item.attr(edi_ns, "taxClass", parse::string)?)))
         .collect::<Result<Vec<_>, use_xml::Error>>()?;
-    root.check_all_used()?;
-    assert_eq!(people.len(), 2);
+    doc.check_all_used()?;
+    assert_eq!(items[0], ("Baby food".to_owned(), "exempt".to_owned()));
     Ok(())
 }
 ```
@@ -39,8 +44,7 @@ fn main() -> Result<(), use_xml::Error> {
 ## Benchmark
 
 `cargo bench` parses an M7 order book message (ported from UseData.Xml) and compares
-`parse_m7_message` (parsing, extraction, `check_all_used`), `parse_str_only`,
-and `read_by_quick_xml` (only tokenizing by `quick-xml`).
+`parse_m7_message` (parsing, extraction, `check_all_used`) with `parse_str_only`.
 The benchmark uses [criterion](https://crates.io/crates/criterion).
 
 ## Documentation

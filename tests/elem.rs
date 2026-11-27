@@ -1,4 +1,9 @@
-use use_xml::{Error, ErrorKind, Item, MAX_DEPTH, MAX_VALUE_CHARS, Position, parse, parse_str};
+use use_xml::{
+    Error, ErrorKind, Item, MAX_DEPTH, MAX_VALUE_CHARS, NamespaceHandle, Position, QualifiedName,
+    parse, parse_str,
+};
+
+const NO: NamespaceHandle = NamespaceHandle::NO_NAMESPACE;
 
 fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
@@ -10,15 +15,16 @@ fn pos(line: u32, column: u32) -> Position {
 
 #[test]
 fn xml_declaration() -> anyhow::Result<()> {
-    let e = parse_str(r#"<?xml version="1.0" encoding="utf-8"?><animals />"#)?;
-    assert_eq!(e.name(), "animals");
+    let doc = parse_str(r#"<?xml version="1.0" encoding="utf-8"?><animals />"#)?;
+    let e = doc.root();
+    assert_eq!(e.local_name(), "animals");
     e.check_all_used()?;
     Ok(())
 }
 
 #[test]
 fn child_elements() -> anyhow::Result<()> {
-    let e = parse_str(
+    let doc = parse_str(
         r#"
     <animals>
         <dog>A</dog>
@@ -27,13 +33,14 @@ fn child_elements() -> anyhow::Result<()> {
     </animals>
     "#,
     )?;
+    let e = doc.root();
     let dogs = e
-        .children("dog")?
+        .children(NO, "dog")?
         .iter()
         .map(|d| d.text(parse::string))
         .collect::<Result<Vec<_>, _>>()?;
-    let pig = e.child("pig")?.text(parse::string)?;
-    let cat = e.child_opt("cat")?;
+    let pig = e.child(NO, "pig")?.text(parse::string)?;
+    let cat = e.child_opt(NO, "cat")?;
     assert_eq!(dogs, ["A", "D"]);
     assert_eq!(pig, "B");
     assert!(cat.is_none());
@@ -43,7 +50,7 @@ fn child_elements() -> anyhow::Result<()> {
 
 #[test]
 fn attributes() -> anyhow::Result<()> {
-    let e = parse_str(
+    let doc = parse_str(
         r#"
     <people>
         <person name="Pete" />
@@ -51,13 +58,14 @@ fn attributes() -> anyhow::Result<()> {
     </people>
     "#,
     )?;
+    let e = doc.root();
     let people = e
-        .children("person")?
+        .children(NO, "person")?
         .iter()
         .map(|p| {
             Ok((
-                p.attr("name", parse::string)?,
-                p.attr_opt("address", parse::string)?,
+                p.attr(NO, "name", parse::string)?,
+                p.attr_opt(NO, "address", parse::string)?,
             ))
         })
         .collect::<Result<Vec<_>, Error>>()?;
@@ -74,7 +82,7 @@ fn attributes() -> anyhow::Result<()> {
 
 #[test]
 fn prefixes() -> anyhow::Result<()> {
-    let e = parse_str(
+    let doc = parse_str(
         r#"
     <root>
         <h:table xmlns:h="http://www.w3.org/TR/html4/">
@@ -85,8 +93,26 @@ fn prefixes() -> anyhow::Result<()> {
     </root>
     "#,
     )?;
-    let cell = e.child("table")?.child("tr")?.child("td")?;
+    let e = doc.root();
+    let html = doc.namespace("http://www.w3.org/TR/html4/")?;
+    // The child is not in the empty namespace.
+    assert_eq!(
+        e.child(NO, "table").unwrap_err(),
+        ErrorKind::Missing {
+            path: "/root".to_owned(),
+            position: pos(2, 5),
+            item: Item::child("", "table")
+        }
+    );
+    let cell = e
+        .child(html, "table")?
+        .child(html, "tr")?
+        .child(html, "td")?;
     assert_eq!(cell.text(parse::string)?, "Cell");
+    assert_eq!(cell.prefixed_name(), "h:td");
+    assert_eq!(cell.local_name(), "td");
+    assert_eq!(cell.namespace(), html);
+    assert_eq!(cell.namespace_uri(), "http://www.w3.org/TR/html4/");
     // `xmlns:h` is not an attribute.
     e.check_all_used()?;
     Ok(())
@@ -94,7 +120,7 @@ fn prefixes() -> anyhow::Result<()> {
 
 #[test]
 fn default_namespace() -> anyhow::Result<()> {
-    let e = parse_str(
+    let doc = parse_str(
         r#"
     <root>
         <table xmlns="http://www.w3.org/TR/html4/">
@@ -105,36 +131,183 @@ fn default_namespace() -> anyhow::Result<()> {
     </root>
     "#,
     )?;
-    let cell = e.child("table")?.child("tr")?.child("td")?;
+    let e = doc.root();
+    let html = doc.namespace("http://www.w3.org/TR/html4/")?;
+    let cell = e
+        .child(html, "table")?
+        .child(html, "tr")?
+        .child(html, "td")?;
     assert_eq!(cell.text(parse::string)?, "Cell");
+    assert_eq!(cell.path(), "/root/table[1]/tr[1]/td[1]");
     e.check_all_used()?;
     Ok(())
 }
 
 #[test]
-fn prefixed_attributes_use_local_name() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a xmlns:p="urn:p" p:x="1" />"#)?;
-    assert_eq!(e.attr("x", parse::i32)?, 1);
-    e.check_all_used()?;
+fn example_from_specification() -> anyhow::Result<()> {
+    let doc = parse_str(
+        r#"
+<x xmlns:edi='http://ecommerce.example.org/schema'>
+  <lineItem edi:taxClass="exempt">Baby food</lineItem>
+</x>"#,
+    )?;
+    let root = doc.root();
+    let default_ns = doc.namespace("")?;
+    let edi_ns = doc.namespace("http://ecommerce.example.org/schema")?;
+    let item = root.child(default_ns, "lineItem")?;
+    let tax_class = item.attr(edi_ns, "taxClass", parse::string)?;
+    assert_eq!(tax_class, "exempt");
+    // The attribute is not in the default namespace.
+    assert_eq!(item.attr_opt(default_ns, "taxClass", parse::string)?, None);
+    assert_eq!(item.text(parse::string)?, "Baby food");
+    doc.check_all_used()?;
     Ok(())
 }
 
 #[test]
-fn children_with_same_prefix_are_allowed() -> anyhow::Result<()> {
-    let e = parse_str(r#"<r xmlns:a="urn:a"><a:x/><a:x/><x/></r>"#);
-    // `a:x` and `x` differ in prefix.
+fn prefixed_attributes_are_in_their_namespace() -> anyhow::Result<()> {
+    let doc = parse_str(r#"<a xmlns:p="urn:p" p:x="1" x="2" />"#)?;
+    let e = doc.root();
+    let p = doc.namespace("urn:p")?;
+    assert_eq!(e.attr(p, "x", parse::i32)?, 1);
+    assert_eq!(e.attr(NO, "x", parse::i32)?, 2);
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn unprefixed_attributes_are_not_in_default_namespace() -> anyhow::Result<()> {
+    let doc = parse_str(r#"<a xmlns="urn:d" x="1" />"#)?;
+    let d = doc.namespace("urn:d")?;
+    assert_eq!(doc.root().namespace(), d);
+    assert_eq!(doc.root().attr_opt(d, "x", parse::i32)?, None);
+    assert_eq!(doc.root().attr(NO, "x", parse::i32)?, 1);
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn different_prefixes_with_same_namespace_are_the_same_name() -> anyhow::Result<()> {
+    let doc =
+        parse_str(r#"<r xmlns:a="urn:x" xmlns:b="urn:x" xmlns="urn:x"><a:i/><b:i/><i/></r>"#)?;
+    let x = doc.namespace("urn:x")?;
+    let items = doc.root().children(x, "i")?;
+    let paths: Vec<String> = items.iter().map(|i| i.path()).collect();
+    assert_eq!(paths, ["/r/a:i[1]", "/r/b:i[2]", "/r/i[3]"]);
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn same_local_name_in_different_namespaces() -> anyhow::Result<()> {
+    let doc = parse_str(r#"<r xmlns:a="urn:a"><a:x/><a:x/><x/></r>"#)?;
+    let a = doc.namespace("urn:a")?;
+    let e = doc.root();
+    assert_eq!(e.children(a, "x")?.len(), 2);
+    let x = e.child(NO, "x")?;
+    assert_eq!(x.path(), "/r/x[1]");
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn namespace_declarations_are_scoped() -> anyhow::Result<()> {
+    let doc =
+        parse_str(r#"<r xmlns="urn:1"><a xmlns="urn:2"><b/></a><c/><d xmlns=""><e/></d></r>"#)?;
+    let n1 = doc.namespace("urn:1")?;
+    let n2 = doc.namespace("urn:2")?;
+    let r = doc.root();
+    assert_eq!(r.child(n2, "a")?.child(n2, "b")?.namespace(), n2);
+    assert_eq!(r.child(n1, "c")?.namespace(), n1);
+    // `xmlns=""` applies to the element itself too.
+    assert_eq!(r.child(NO, "d")?.child(NO, "e")?.namespace(), NO);
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn xml_prefix_is_predeclared() -> anyhow::Result<()> {
+    let doc = parse_str(r#"<a xml:lang="cs" lang="en"/>"#)?;
     assert_eq!(
-        e.unwrap_err(),
-        ErrorKind::ChildPrefixMismatch {
-            path: "/r".to_owned(),
-            position: pos(1, 32),
-            name: "x".to_owned(),
-            first_prefix: "a".to_owned(),
-            second_prefix: String::new(),
+        doc.namespace("http://www.w3.org/XML/1998/namespace")?,
+        NamespaceHandle::XML
+    );
+    assert_eq!(
+        doc.root()
+            .attr(NamespaceHandle::XML, "lang", parse::string)?,
+        "cs"
+    );
+    assert_eq!(doc.root().attr(NO, "lang", parse::string)?, "en");
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn namespaces_not_in_document_are_interned() -> anyhow::Result<()> {
+    let doc = parse_str("<a/>")?;
+    assert_eq!(doc.namespace("")?, NO);
+    let other = doc.namespace("urn:other")?;
+    assert_eq!(doc.namespace("urn:other")?, other);
+    assert_eq!(doc.namespace_uri(other).as_deref(), Some("urn:other"));
+    assert_eq!(doc.root().attr_opt(other, "x", parse::string)?, None);
+    assert_eq!(
+        doc.root().child(other, "y").unwrap_err(),
+        ErrorKind::Missing {
+            path: "/a".to_owned(),
+            position: pos(1, 1),
+            item: Item::child("urn:other", "y")
         }
     );
-    let e = parse_str(r#"<r xmlns:a="urn:a"><a:x/><a:x/></r>"#)?;
-    assert_eq!(e.children("x")?.len(), 2);
+    assert_eq!(
+        doc.root().children(other, "y").unwrap_err(),
+        already_used("/a", pos(1, 1), Item::child("urn:other", "y"))
+    );
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn namespace_handle_of_another_document_is_rejected() -> anyhow::Result<()> {
+    let doc = parse_str("<a/>")?;
+    let other = parse_str("<a/>")?;
+    let ns = other.namespace("urn:other")?;
+    assert_eq!(doc.namespace_uri(ns), None);
+    assert_eq!(
+        doc.root().attr_opt(ns, "x", parse::string).unwrap_err(),
+        ErrorKind::InvalidNamespaceHandle {
+            path: "/a".to_owned(),
+            position: pos(1, 1)
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn too_many_namespaces() -> anyhow::Result<()> {
+    let doc = parse_str("<a/>")?;
+    // The empty namespace and the `xml` namespace are always interned.
+    for i in 2..use_xml::MAX_NAMESPACES {
+        doc.namespace(&format!("urn:{i}"))?;
+    }
+    assert_eq!(
+        doc.namespace("urn:last").unwrap_err(),
+        ErrorKind::LimitExceeded {
+            limit: use_xml::Limit::Namespaces,
+            position: None
+        }
+    );
+    // Existing namespaces are still found.
+    assert_eq!(doc.namespace("urn:2")?, doc.namespace("urn:2")?);
+    Ok(())
+}
+
+#[test]
+fn parent_and_document() -> anyhow::Result<()> {
+    let doc = parse_str("<a><b/></a>")?;
+    let b = doc.root().child(NO, "b")?;
+    assert_eq!(b.parent().map(|p| p.path()), Some("/a".to_owned()));
+    assert!(doc.root().parent().is_none());
+    assert!(std::ptr::eq(b.document(), &doc));
     Ok(())
 }
 
@@ -144,7 +317,8 @@ fn children_with_same_prefix_are_allowed() -> anyhow::Result<()> {
 
 #[test]
 fn whitespace_text_is_kept_without_children() -> anyhow::Result<()> {
-    let e = parse_str("<a>  \n </a>")?;
+    let doc = parse_str("<a>  \n </a>")?;
+    let e = doc.root();
     // Whitespace-only text does not need to be used.
     e.check_all_used()?;
     assert_eq!(e.text(parse::string)?, "  \n ");
@@ -153,30 +327,34 @@ fn whitespace_text_is_kept_without_children() -> anyhow::Result<()> {
 
 #[test]
 fn text_of_element_with_children_is_empty() -> anyhow::Result<()> {
-    let e = parse_str("<a>\n  <b/>\n  <c/>\n</a>")?;
+    let doc = parse_str("<a>\n  <b/>\n  <c/>\n</a>")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, "");
     Ok(())
 }
 
 #[test]
 fn text_of_empty_element_is_empty() -> anyhow::Result<()> {
-    let e = parse_str("<r><a/><b></b></r>")?;
-    assert_eq!(e.child("a")?.text(parse::string)?, "");
-    assert_eq!(e.child("b")?.text(parse::string)?, "");
+    let doc = parse_str("<r><a/><b></b></r>")?;
+    let e = doc.root();
+    assert_eq!(e.child(NO, "a")?.text(parse::string)?, "");
+    assert_eq!(e.child(NO, "b")?.text(parse::string)?, "");
     e.check_all_used()?;
     Ok(())
 }
 
 #[test]
 fn cdata_and_text_are_concatenated() -> anyhow::Result<()> {
-    let e = parse_str("<a> x <![CDATA[<y>]]> z </a>")?;
+    let doc = parse_str("<a> x <![CDATA[<y>]]> z </a>")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, " x <y> z ");
     Ok(())
 }
 
 #[test]
 fn empty_cdata_is_significant() -> anyhow::Result<()> {
-    let e = parse_str("<a><![CDATA[]]></a>")?;
+    let doc = parse_str("<a><![CDATA[]]></a>")?;
+    let e = doc.root();
     assert_eq!(
         e.check_all_used().map_err(Error::into_kind),
         Err(ErrorKind::Unused {
@@ -190,29 +368,33 @@ fn empty_cdata_is_significant() -> anyhow::Result<()> {
 
 #[test]
 fn entities_are_decoded() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a x="&lt;&#65;&quot;">&amp;&#x42;&apos;&gt;</a>"#)?;
-    assert_eq!(e.attr("x", parse::string)?, "<A\"");
+    let doc = parse_str(r#"<a x="&lt;&#65;&quot;">&amp;&#x42;&apos;&gt;</a>"#)?;
+    let e = doc.root();
+    assert_eq!(e.attr(NO, "x", parse::string)?, "<A\"");
     assert_eq!(e.text(parse::string)?, "&B'>");
     Ok(())
 }
 
 #[test]
 fn whitespace_char_reference_is_not_significant() -> anyhow::Result<()> {
-    let e = parse_str("<a>&#32;<b/></a>")?;
+    let doc = parse_str("<a>&#32;<b/></a>")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, "");
     Ok(())
 }
 
 #[test]
 fn comments_and_processing_instructions_are_ignored() -> anyhow::Result<()> {
-    let e = parse_str("<!-- c --><?pi x?><a>x<!-- c -->y<?pi?></a><!-- c -->")?;
+    let doc = parse_str("<!-- c --><?pi x?><a>x<!-- c -->y<?pi?></a><!-- c -->")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, "xy");
     Ok(())
 }
 
 #[test]
 fn line_endings_are_normalized() -> anyhow::Result<()> {
-    let e = parse_str("<a>x\r\ny\rz</a>")?;
+    let doc = parse_str("<a>x\r\ny\rz</a>")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, "x\ny\nz");
     Ok(())
 }
@@ -278,54 +460,11 @@ fn mixed_content_entity_reference_before_child() {
 }
 
 #[test]
-fn duplicate_attribute_with_different_prefixes() {
-    assert_eq!(
-        parse_str(
-            r#"<r xmlns:a="urn:a" xmlns:b="urn:b">
-<e a:x="1" b:x="2"/></r>"#
-        )
-        .unwrap_err(),
-        ErrorKind::DuplicateAttr {
-            path: "/r/e[1]".to_owned(),
-            position: pos(2, 1),
-            name: "x".to_owned()
-        }
-    );
-}
-
-#[test]
-fn duplicate_attribute_with_same_name() {
-    assert_eq!(
-        parse_str(r#"<e x="1" x="2"/>"#).unwrap_err(),
-        ErrorKind::DuplicateAttr {
-            path: "/e".to_owned(),
-            position: pos(1, 1),
-            name: "x".to_owned()
-        }
-    );
-}
-
-#[test]
-fn child_prefix_mismatch() {
-    assert_eq!(
-        parse_str(r#"<r xmlns:a="urn:a" xmlns:b="urn:b"><a:c/><b:c/></r>"#).unwrap_err(),
-        ErrorKind::ChildPrefixMismatch {
-            path: "/r".to_owned(),
-            position: pos(1, 42),
-            name: "c".to_owned(),
-            first_prefix: "a".to_owned(),
-            second_prefix: "b".to_owned(),
-        }
-    );
-}
-
-#[test]
 fn unknown_entity() {
     assert_eq!(
         parse_str("<a>x &nbsp;</a>").unwrap_err(),
         ErrorKind::UnknownEntity {
             name: "nbsp".to_owned(),
-            path: "/a".to_owned(),
             position: pos(1, 6)
         }
     );
@@ -463,7 +602,7 @@ fn missing_closing_tag() {
     assert_eq!(
         parse_str("<root><person>").unwrap_err(),
         ErrorKind::Xml {
-            message: "unexpected end of document".to_owned(),
+            message: "element `person` not closed".to_owned(),
             position: pos(1, 15)
         }
     );
@@ -482,13 +621,14 @@ const TWO_NAMES: &str = "<person>\n  <name>Peter</name>\n  <name>James</name>\n<
 
 #[test]
 fn multiple_children_when_single_child_is_expected() -> anyhow::Result<()> {
-    let e = parse_str(TWO_NAMES)?;
+    let doc = parse_str(TWO_NAMES)?;
+    let e = doc.root();
     assert_eq!(
-        e.child("name").unwrap_err(),
+        e.child(NO, "name").unwrap_err(),
         ErrorKind::WrongCount {
             path: "/person".to_owned(),
             position: pos(1, 1),
-            name: "name".to_owned(),
+            name: QualifiedName::new("", "name"),
             expected: "exactly one",
             found: 2
         }
@@ -498,13 +638,14 @@ fn multiple_children_when_single_child_is_expected() -> anyhow::Result<()> {
 
 #[test]
 fn multiple_children_when_at_most_one_child_is_expected() -> anyhow::Result<()> {
-    let e = parse_str(TWO_NAMES)?;
+    let doc = parse_str(TWO_NAMES)?;
+    let e = doc.root();
     assert_eq!(
-        e.child_opt("name").unwrap_err(),
+        e.child_opt(NO, "name").unwrap_err(),
         ErrorKind::WrongCount {
             path: "/person".to_owned(),
             position: pos(1, 1),
-            name: "name".to_owned(),
+            name: QualifiedName::new("", "name"),
             expected: "at most one",
             found: 2
         }
@@ -514,13 +655,14 @@ fn multiple_children_when_at_most_one_child_is_expected() -> anyhow::Result<()> 
 
 #[test]
 fn no_child_when_one_child_is_expected() -> anyhow::Result<()> {
-    let e = parse_str("<dog></dog>")?;
+    let doc = parse_str("<dog></dog>")?;
+    let e = doc.root();
     assert_eq!(
-        e.child("name").unwrap_err(),
+        e.child(NO, "name").unwrap_err(),
         ErrorKind::Missing {
             path: "/dog".to_owned(),
             position: pos(1, 1),
-            item: Item::Child("name".to_owned())
+            item: Item::child("", "name")
         }
     );
     Ok(())
@@ -528,13 +670,14 @@ fn no_child_when_one_child_is_expected() -> anyhow::Result<()> {
 
 #[test]
 fn no_attribute_when_one_attribute_is_expected() -> anyhow::Result<()> {
-    let e = parse_str("<city></city>")?;
+    let doc = parse_str("<city></city>")?;
+    let e = doc.root();
     assert_eq!(
-        e.attr("name", parse::string).unwrap_err(),
+        e.attr(NO, "name", parse::string).unwrap_err(),
         ErrorKind::Missing {
             path: "/city".to_owned(),
             position: pos(1, 1),
-            item: Item::Attr("name".to_owned())
+            item: Item::attr("", "name")
         }
     );
     Ok(())
@@ -542,16 +685,16 @@ fn no_attribute_when_one_attribute_is_expected() -> anyhow::Result<()> {
 
 #[test]
 fn invalid_value() -> anyhow::Result<()> {
-    let e = parse_str("<r>\n  <n v=\"x\">12a</n>\n</r>")?;
-    let n = e.child("n")?;
+    let doc = parse_str("<r>\n  <n v=\"x\">12a</n>\n</r>")?;
+    let e = doc.root();
+    let n = e.child(NO, "n")?;
     assert_eq!(
-        n.attr("v", parse::u32).unwrap_err(),
+        n.attr(NO, "v", parse::u32).unwrap_err(),
         ErrorKind::InvalidValue {
             path: "/r/n[1]".to_owned(),
             position: pos(2, 3),
-            item: Item::Attr("v".to_owned()),
-            value: "x".to_owned(),
-            message: "expected u32".to_owned()
+            item: Item::attr("", "v"),
+            message: r#"expected u32, got "x""#.to_owned()
         }
     );
     assert_eq!(
@@ -560,8 +703,7 @@ fn invalid_value() -> anyhow::Result<()> {
             path: "/r/n[1]".to_owned(),
             position: pos(2, 3),
             item: Item::Text,
-            value: "12a".to_owned(),
-            message: "expected u32".to_owned()
+            message: r#"expected u32, got "12a""#.to_owned()
         }
     );
     Ok(())
@@ -569,8 +711,9 @@ fn invalid_value() -> anyhow::Result<()> {
 
 #[test]
 fn custom_parser_with_any_display_error() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a n="7"/>"#)?;
-    assert_eq!(e.attr("n", str::parse::<u8>)?, 7);
+    let doc = parse_str(r#"<a n="7"/>"#)?;
+    let e = doc.root();
+    assert_eq!(e.attr(NO, "n", |s: String| s.parse::<u8>())?, 7);
     Ok(())
 }
 
@@ -588,43 +731,47 @@ fn already_used(path: &str, position: Position, item: Item) -> ErrorKind {
 
 #[test]
 fn attribute_can_be_used_once() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a x="1"/>"#)?;
-    e.attr("x", parse::string)?;
+    let doc = parse_str(r#"<a x="1"/>"#)?;
+    let e = doc.root();
+    e.attr(NO, "x", parse::string)?;
     assert_eq!(
-        e.attr_opt("x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        e.attr_opt(NO, "x", parse::string).unwrap_err(),
+        already_used("/a", pos(1, 1), Item::attr("", "x"))
     );
     Ok(())
 }
 
 #[test]
 fn missing_attribute_can_be_requested_once() -> anyhow::Result<()> {
-    let e = parse_str("<a/>")?;
-    assert_eq!(e.attr_opt("x", parse::string)?, None);
+    let doc = parse_str("<a/>")?;
+    let e = doc.root();
+    assert_eq!(e.attr_opt(NO, "x", parse::string)?, None);
     assert_eq!(
-        e.attr_opt("x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        e.attr_opt(NO, "x", parse::string).unwrap_err(),
+        already_used("/a", pos(1, 1), Item::attr("", "x"))
     );
     // `attr` reports the missing attribute only for the first request.
-    let e = parse_str("<a/>")?;
+    let doc = parse_str("<a/>")?;
+    let e = doc.root();
     assert_eq!(
-        e.attr("x", parse::string).unwrap_err(),
+        e.attr(NO, "x", parse::string).unwrap_err(),
         ErrorKind::Missing {
             path: "/a".to_owned(),
             position: pos(1, 1),
-            item: Item::Attr("x".to_owned())
+            item: Item::attr("", "x")
         }
     );
     assert_eq!(
-        e.attr("x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        e.attr(NO, "x", parse::string).unwrap_err(),
+        already_used("/a", pos(1, 1), Item::attr("", "x"))
     );
     Ok(())
 }
 
 #[test]
 fn text_can_be_used_once() -> anyhow::Result<()> {
-    let e = parse_str("<a>t</a>")?;
+    let doc = parse_str("<a>t</a>")?;
+    let e = doc.root();
     e.text(parse::string)?;
     assert_eq!(
         e.text(parse::string).unwrap_err(),
@@ -635,49 +782,52 @@ fn text_can_be_used_once() -> anyhow::Result<()> {
 
 #[test]
 fn children_can_be_used_once() -> anyhow::Result<()> {
-    let e = parse_str("<a><b/></a>")?;
-    e.children("b")?;
+    let doc = parse_str("<a><b/></a>")?;
+    let e = doc.root();
+    e.children(NO, "b")?;
     assert_eq!(
-        e.child("b").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Child("b".to_owned()))
+        e.child(NO, "b").unwrap_err(),
+        already_used("/a", pos(1, 1), Item::child("", "b"))
     );
     // Missing children are tracked too.
-    assert_eq!(e.child_opt("c")?.map(|c| c.name()), None);
+    assert_eq!(e.child_opt(NO, "c")?.map(|c| c.local_name()), None);
     assert_eq!(
-        e.children("c").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Child("c".to_owned()))
+        e.children(NO, "c").unwrap_err(),
+        already_used("/a", pos(1, 1), Item::child("", "c"))
     );
     Ok(())
 }
 
 #[test]
 fn ignore_all_marks_everything_as_used() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a x="1"><b y="2">t</b></a>"#)?;
+    let doc = parse_str(r#"<a x="1"><b y="2">t</b></a>"#)?;
+    let e = doc.root();
     e.ignore_all();
     e.check_all_used()?;
     assert_eq!(
-        e.attr("x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        e.attr(NO, "x", parse::string).unwrap_err(),
+        already_used("/a", pos(1, 1), Item::attr("", "x"))
     );
     assert_eq!(
         e.text(parse::string).unwrap_err(),
         already_used("/a", pos(1, 1), Item::Text)
     );
     assert_eq!(
-        e.children("b").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Child("b".to_owned()))
+        e.children(NO, "b").unwrap_err(),
+        already_used("/a", pos(1, 1), Item::child("", "b"))
     );
     Ok(())
 }
 
 #[test]
 fn ignore_all_on_parent_affects_previously_obtained_child() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a><b y="2"/></a>"#)?;
-    let b = e.child("b")?;
+    let doc = parse_str(r#"<a><b y="2"/></a>"#)?;
+    let e = doc.root();
+    let b = e.child(NO, "b")?;
     e.ignore_all();
     assert_eq!(
-        b.attr("y", parse::string).unwrap_err(),
-        already_used("/a/b[1]", pos(1, 4), Item::Attr("y".to_owned()))
+        b.attr(NO, "y", parse::string).unwrap_err(),
+        already_used("/a/b[1]", pos(1, 4), Item::attr("", "y"))
     );
     e.check_all_used()?;
     Ok(())
@@ -685,9 +835,10 @@ fn ignore_all_on_parent_affects_previously_obtained_child() -> anyhow::Result<()
 
 #[test]
 fn ignore_all_on_child() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a><b y="2"><c/></b><d/></a>"#)?;
-    e.child("b")?.ignore_all();
-    e.child("d")?;
+    let doc = parse_str(r#"<a><b y="2"><c/></b><d/></a>"#)?;
+    let e = doc.root();
+    e.child(NO, "b")?.ignore_all();
+    e.child(NO, "d")?;
     e.check_all_used()?;
     Ok(())
 }
@@ -705,8 +856,12 @@ const COMPANY: &str = "<company>
 
 #[test]
 fn unused_element() -> anyhow::Result<()> {
-    let e = parse_str(COMPANY)?;
-    let street = e.child("address")?.child("street")?.text(parse::string)?;
+    let doc = parse_str(COMPANY)?;
+    let e = doc.root();
+    let street = e
+        .child(NO, "address")?
+        .child(NO, "street")?
+        .text(parse::string)?;
     assert_eq!(street, "Baker Street");
     assert_eq!(
         e.check_all_used().unwrap_err(),
@@ -714,7 +869,7 @@ fn unused_element() -> anyhow::Result<()> {
             // The path and the position of the unused child, not of its parent.
             path: "/company/address[1]/city[1]".to_owned(),
             position: pos(4, 9),
-            item: Item::Child("city".to_owned())
+            item: Item::child("", "city")
         }
     );
     Ok(())
@@ -722,72 +877,80 @@ fn unused_element() -> anyhow::Result<()> {
 
 #[test]
 fn unused_child_points_to_the_first_child_with_the_name() -> anyhow::Result<()> {
-    let e = parse_str("<r>\n  <b/>\n  <a/>\n  <a/>\n</r>")?;
+    let doc = parse_str("<r>\n  <a/>\n  <b/>\n  <b/>\n</r>")?;
+    let e = doc.root();
+    e.children(NO, "a")?;
     let error = e.check_all_used().unwrap_err();
     assert_eq!(
         error,
         ErrorKind::Unused {
-            path: "/r/a[1]".to_owned(),
+            path: "/r/b[1]".to_owned(),
             position: pos(3, 3),
-            item: Item::Child("a".to_owned())
+            item: Item::child("", "b")
         }
     );
     assert_eq!(
         error.to_string(),
-        "element /r/a[1] at line 3, column 3 not used"
+        "element /r/b[1] at line 3, column 3 not used"
     );
-    e.children("a")?;
-    assert_eq!(
-        e.check_all_used().unwrap_err().to_string(),
-        "element /r/b[1] at line 2, column 3 not used"
-    );
+    e.children(NO, "b")?;
+    e.check_all_used()?;
     Ok(())
 }
 
 #[test]
 fn error_position_and_path() -> anyhow::Result<()> {
     // Errors related to an element.
-    let e = parse_str("<r>\n  <a x=\"1\"/></r>")?;
-    let a = e.child("a")?;
-    let error = a.attr("y", parse::string).unwrap_err();
+    let doc = parse_str("<r>\n  <a x=\"1\"/></r>")?;
+    let e = doc.root();
+    let a = e.child(NO, "a")?;
+    let error = a.attr(NO, "y", parse::string).unwrap_err();
     assert_eq!(
         (error.path(), error.position()),
-        (Some("/r/a[1]"), pos(2, 3))
+        (Some("/r/a[1]"), Some(pos(2, 3)))
     );
     assert_eq!(error.kind().path(), Some("/r/a[1]"));
-    assert_eq!(error.kind().position(), pos(2, 3));
+    assert_eq!(error.kind().position(), Some(pos(2, 3)));
     let error = e.check_all_used().unwrap_err();
     assert_eq!(
         (error.path(), error.position()),
-        (Some("/r/a[1]"), pos(2, 3))
+        (Some("/r/a[1]"), Some(pos(2, 3)))
     );
 
     // Errors not related to an element.
     let error = parse_str("<r>\n  </b>").unwrap_err();
-    assert_eq!((error.path(), error.position()), (None, pos(2, 3)));
+    assert_eq!((error.path(), error.position()), (None, Some(pos(2, 3))));
     let error = parse_str("<a/>\n<b/>").unwrap_err();
-    assert_eq!((error.path(), error.position()), (None, pos(2, 1)));
-
-    // The offending child.
-    let error = parse_str("<r xmlns:p=\"u\"><c/>\n<p:c/></r>").unwrap_err();
-    assert_eq!((error.path(), error.position()), (Some("/r"), pos(2, 1)));
+    assert_eq!((error.path(), error.position()), (None, Some(pos(2, 1))));
+    // The offending child or attribute.
+    let error = parse_str("<r>\n<a x='1' x='2'/></r>").unwrap_err();
+    assert_eq!(
+        (error.path(), error.position()),
+        (Some("/r/a[1]"), Some(pos(2, 10)))
+    );
+    let error = parse_str(&"<a>".repeat(MAX_DEPTH + 1)).unwrap_err();
+    assert_eq!(error.position(), Some(pos(1, 3 * MAX_DEPTH as u32 + 1)));
     Ok(())
 }
 
 #[test]
 fn unused_attribute() -> anyhow::Result<()> {
-    let e = parse_str(
+    let doc = parse_str(
         r#"<company>
     <address street="Baker Street" city="London" />
 </company>"#,
     )?;
-    assert_eq!(e.child("address")?.attr("city", parse::string)?, "London");
+    let e = doc.root();
+    assert_eq!(
+        e.child(NO, "address")?.attr(NO, "city", parse::string)?,
+        "London"
+    );
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
             path: "/company/address[1]".to_owned(),
             position: pos(2, 5),
-            item: Item::Attr("street".to_owned())
+            item: Item::attr("", "street")
         }
     );
     Ok(())
@@ -795,11 +958,12 @@ fn unused_attribute() -> anyhow::Result<()> {
 
 #[test]
 fn unused_text() -> anyhow::Result<()> {
-    let e = parse_str(COMPANY)?;
-    let address = e.child("address")?;
-    address.child("city")?;
+    let doc = parse_str(COMPANY)?;
+    let e = doc.root();
+    let address = e.child(NO, "address")?;
+    address.child(NO, "city")?;
     assert_eq!(
-        address.child("street")?.text(parse::string)?,
+        address.child(NO, "street")?.text(parse::string)?,
         "Baker Street"
     );
     assert_eq!(
@@ -815,18 +979,20 @@ fn unused_text() -> anyhow::Result<()> {
 
 #[test]
 fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a z="1" y="2"><![CDATA[t]]></a>"#)?;
+    let doc = parse_str(r#"<a z="1" y="2"><![CDATA[t]]></a>"#)?;
+    let e = doc.root();
     let unused = |path: &str, position, item| ErrorKind::Unused {
         path: path.to_owned(),
         position,
         item,
     };
+    // Attributes by the first occurrence of their names.
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a", pos(1, 1), Item::Attr("y".to_owned()))
+        unused("/a", pos(1, 1), Item::attr("", "z"))
     );
-    e.attr("y", parse::string)?;
-    e.attr("z", parse::string)?;
+    e.attr(NO, "y", parse::string)?;
+    e.attr(NO, "z", parse::string)?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
         unused("/a", pos(1, 1), Item::Text)
@@ -834,37 +1000,40 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     e.text(parse::string)?;
     e.check_all_used()?;
 
-    // Attributes before children, children in name order.
-    let e = parse_str(r#"<a x="1"><c/><b/></a>"#)?;
+    // Attributes before children, children by the first occurrence of their names.
+    let doc = parse_str(r#"<a x="1"><b/><c/></a>"#)?;
+    let e = doc.root();
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        unused("/a", pos(1, 1), Item::attr("", "x"))
     );
-    e.attr("x", parse::string)?;
+    e.attr(NO, "x", parse::string)?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a/b[1]", pos(1, 14), Item::Child("b".to_owned()))
+        unused("/a/b[1]", pos(1, 10), Item::child("", "b"))
     );
     // Own items before descendants.
-    let e = parse_str(r#"<a><b y="1"/><c/></a>"#)?;
-    e.children("b")?;
+    let doc = parse_str(r#"<a><b y="1"/><c/></a>"#)?;
+    let e = doc.root();
+    e.children(NO, "b")?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a/c[1]", pos(1, 14), Item::Child("c".to_owned()))
+        unused("/a/c[1]", pos(1, 14), Item::child("", "c"))
     );
     Ok(())
 }
 
 #[test]
 fn check_reports_first_unused_descendant_in_document_order() -> anyhow::Result<()> {
-    let e = parse_str(r#"<r><i/><i x="1"/><i y="1"/></r>"#)?;
-    e.children("i")?;
+    let doc = parse_str(r#"<r><i/><i x="1"/><i y="1"/></r>"#)?;
+    let e = doc.root();
+    e.children(NO, "i")?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
             path: "/r/i[2]".to_owned(),
             position: pos(1, 8),
-            item: Item::Attr("x".to_owned())
+            item: Item::attr("", "x")
         }
     );
     Ok(())
@@ -876,22 +1045,27 @@ fn check_reports_first_unused_descendant_in_document_order() -> anyhow::Result<(
 
 #[test]
 fn paths() -> anyhow::Result<()> {
-    let e = parse_str("<root><items><item/><x/><item/><item/></items></root>")?;
+    let doc = parse_str("<root><items><item/><x/><item/><item/></items></root>")?;
+    let e = doc.root();
     assert_eq!(e.path(), "/root");
-    let items = e.child("items")?;
+    let items = e.child(NO, "items")?;
     assert_eq!(items.path(), "/root/items[1]");
-    assert_eq!(items.children("item")?[2].path(), "/root/items[1]/item[3]");
-    assert_eq!(items.child("x")?.path(), "/root/items[1]/x[1]");
+    assert_eq!(
+        items.children(NO, "item")?[2].path(),
+        "/root/items[1]/item[3]"
+    );
+    assert_eq!(items.child(NO, "x")?.path(), "/root/items[1]/x[1]");
     Ok(())
 }
 
 #[test]
 fn positions_with_crlf_and_multibyte_characters() -> anyhow::Result<()> {
-    let e = parse_str("<r>\r\n<a v=\"č\"/><b/>\r\n\r\n  <č/></r>")?;
+    let doc = parse_str("<r>\r\n<a v=\"č\"/><b/>\r\n\r\n  <č/></r>")?;
+    let e = doc.root();
     assert_eq!(e.position(), pos(1, 1));
-    assert_eq!(e.child("a")?.position(), pos(2, 1));
-    assert_eq!(e.child("b")?.position(), pos(2, 11));
-    assert_eq!(e.child("č")?.position(), pos(4, 3));
+    assert_eq!(e.child(NO, "a")?.position(), pos(2, 1));
+    assert_eq!(e.child(NO, "b")?.position(), pos(2, 11));
+    assert_eq!(e.child(NO, "č")?.position(), pos(4, 3));
     Ok(())
 }
 
@@ -905,7 +1079,6 @@ fn unknown_entity_in_attribute() {
         parse_str("<r>\n  <a x=\"&nbsp;\"/></r>").unwrap_err(),
         ErrorKind::UnknownEntity {
             name: "nbsp".to_owned(),
-            path: "/r/a[1]".to_owned(),
             // Points to `&` in the attribute value.
             position: pos(2, 9)
         }
@@ -923,32 +1096,23 @@ fn invalid_references_point_to_the_reference() {
         // In attribute values, also after other references and multibyte characters.
         (
             "<r>\n <a y='1' x='ab&#xZZ;'/></r>",
-            xml(
-                "invalid character reference: invalid digit found in string",
-                pos(2, 16),
-            ),
+            xml("invalid character reference", pos(2, 16)),
         ),
         (
             "<a x='čč&amp;&#0;'/>",
-            xml(
-                "invalid character reference: 0x0 character is not permitted in XML",
-                pos(1, 14),
-            ),
+            xml("character reference to a forbidden character", pos(1, 14)),
         ),
         ("<a x='a\r\nb &x'/>", xml(not_closed, pos(2, 3))),
         ("<a x='&amp'/>", xml(not_closed, pos(1, 7))),
         // In text.
         (
             "<r>\n <a>&#xZZ;</a></r>",
-            xml(
-                "invalid character reference: invalid digit found in string",
-                pos(2, 5),
-            ),
+            xml("invalid character reference", pos(2, 5)),
         ),
-        // The same message as in attribute values, although the input continues.
-        ("<a>a & b</a>", xml(not_closed, pos(1, 6))),
+        ("<a>a & b</a>", xml("invalid reference", pos(1, 6))),
         ("<r>\n <a>č&amp</a></r>", xml(not_closed, pos(2, 6))),
-        ("<a>&</a>", xml(not_closed, pos(1, 4))),
+        ("<a>&</a>", xml("invalid reference", pos(1, 4))),
+        ("<a>&a:b;</a>", xml(not_closed, pos(1, 4))),
     ];
     for (input, expected) in cases {
         assert_eq!(parse_str(input).unwrap_err(), expected, "{input:?}");
@@ -1021,48 +1185,26 @@ fn only_one_byte_order_mark_is_skipped() {
 }
 
 #[test]
-fn attribute_syntax_errors_have_exact_positions() {
-    assert_eq!(
-        parse_str("<a x=1/>").unwrap_err(),
-        ErrorKind::Xml {
-            message: "attribute value must be enclosed in `\"` or `'`".to_owned(),
-            position: pos(1, 6)
-        }
-    );
-    assert_eq!(
-        parse_str("<a\n  x y='1'/>").unwrap_err(),
-        ErrorKind::Xml {
-            message: "attribute name must be directly followed by `=` or whitespace".to_owned(),
-            position: pos(2, 5)
-        }
-    );
-    assert_eq!(
-        parse_str("<a x= />").unwrap_err(),
-        ErrorKind::Xml {
-            message: "`=` must be followed by an attribute value".to_owned(),
-            position: pos(1, 7)
-        }
-    );
-}
-
-#[test]
 fn attribute_values_are_normalized() -> anyhow::Result<()> {
     // Literal tabs and line breaks become spaces, character references are kept.
-    let e = parse_str("<a x=\"a\tb\r\nc\rd\ne&#10;f&#9;g\"/>")?;
-    assert_eq!(e.attr("x", parse::string)?, "a b c d e\nf\tg");
+    let doc = parse_str("<a x=\"a\tb\r\nc\rd\ne&#10;f&#9;g\"/>")?;
+    let e = doc.root();
+    assert_eq!(e.attr(NO, "x", parse::string)?, "a b c d e\nf\tg");
     Ok(())
 }
 
 #[test]
 fn character_references_outside_of_bmp_are_decoded() -> anyhow::Result<()> {
-    let e = parse_str("<a>&#x1F600;&#128512;</a>")?;
+    let doc = parse_str("<a>&#x1F600;&#128512;</a>")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, "😀😀");
     Ok(())
 }
 
 #[test]
 fn whitespace_only_cdata_must_be_used() -> anyhow::Result<()> {
-    let e = parse_str("<a><![CDATA[ ]]></a>")?;
+    let doc = parse_str("<a><![CDATA[ ]]></a>")?;
+    let e = doc.root();
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
@@ -1100,38 +1242,41 @@ fn max_depth_with_empty_element() -> anyhow::Result<()> {
 
 #[test]
 fn positions_with_lone_carriage_returns() -> anyhow::Result<()> {
-    let e = parse_str("<r>\r<a/>\r\r<b/>\r\n\r<c/></r>")?;
-    assert_eq!(e.child("a")?.position(), pos(2, 1));
-    assert_eq!(e.child("b")?.position(), pos(4, 1));
-    assert_eq!(e.child("c")?.position(), pos(6, 1));
+    let doc = parse_str("<r>\r<a/>\r\r<b/>\r\n\r<c/></r>")?;
+    let e = doc.root();
+    assert_eq!(e.child(NO, "a")?.position(), pos(2, 1));
+    assert_eq!(e.child(NO, "b")?.position(), pos(4, 1));
+    assert_eq!(e.child(NO, "c")?.position(), pos(6, 1));
     Ok(())
 }
 
 #[test]
 fn positions_with_characters_outside_of_bmp() -> anyhow::Result<()> {
     // `😀` is one Unicode scalar value (four bytes in UTF-8, two UTF-16 code units).
-    let e = parse_str("<r><a x=\"😀\"/>\t<b/></r>")?;
-    assert_eq!(e.child("a")?.position(), pos(1, 4));
-    assert_eq!(e.child("b")?.position(), pos(1, 15));
+    let doc = parse_str("<r><a x=\"😀\"/>\t<b/></r>")?;
+    let e = doc.root();
+    assert_eq!(e.child(NO, "a")?.position(), pos(1, 4));
+    assert_eq!(e.child(NO, "b")?.position(), pos(1, 15));
     Ok(())
 }
 
 #[test]
 fn missing_names_are_already_used_after_ignore_all() -> anyhow::Result<()> {
-    let e = parse_str("<a><b/></a>")?;
-    let b = e.child("b")?;
+    let doc = parse_str("<a><b/></a>")?;
+    let e = doc.root();
+    let b = e.child(NO, "b")?;
     e.ignore_all();
     assert_eq!(
-        e.attr_opt("x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+        e.attr_opt(NO, "x", parse::string).unwrap_err(),
+        already_used("/a", pos(1, 1), Item::attr("", "x"))
     );
     assert_eq!(
-        e.child_opt("y").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::Child("y".to_owned()))
+        e.child_opt(NO, "y").unwrap_err(),
+        already_used("/a", pos(1, 1), Item::child("", "y"))
     );
     assert_eq!(
-        b.children("z").unwrap_err(),
-        already_used("/a/b[1]", pos(1, 4), Item::Child("z".to_owned()))
+        b.children(NO, "z").unwrap_err(),
+        already_used("/a/b[1]", pos(1, 4), Item::child("", "z"))
     );
     e.check_all_used()?;
     Ok(())
@@ -1139,14 +1284,15 @@ fn missing_names_are_already_used_after_ignore_all() -> anyhow::Result<()> {
 
 #[test]
 fn ignore_all_on_child_does_not_hide_unused_siblings() -> anyhow::Result<()> {
-    let e = parse_str(r#"<a><b x="1"/><b y="2"/></a>"#)?;
-    e.children("b")?[0].ignore_all();
+    let doc = parse_str(r#"<a><b x="1"/><b y="2"/></a>"#)?;
+    let e = doc.root();
+    e.children(NO, "b")?[0].ignore_all();
     assert_eq!(
         e.check_all_used().unwrap_err(),
         ErrorKind::Unused {
             path: "/a/b[2]".to_owned(),
             position: pos(1, 14),
-            item: Item::Attr("y".to_owned())
+            item: Item::attr("", "y")
         }
     );
     Ok(())
@@ -1155,13 +1301,14 @@ fn ignore_all_on_child_does_not_hide_unused_siblings() -> anyhow::Result<()> {
 #[test]
 fn value_parser_can_use_the_same_element() -> anyhow::Result<()> {
     // Usage tracking must not be borrowed while a value parser runs.
-    let e = parse_str(r#"<a x="1" y="2"/>"#)?;
-    let x = e.attr("x", |s| -> Result<String, use_xml::Error> {
-        let y = e.attr("y", parse::string)?;
-        assert!(e.attr_opt("missing", parse::string)?.is_none());
+    let doc = parse_str(r#"<a x="1" y="2"/>"#)?;
+    let e = doc.root();
+    let x = e.attr(NO, "x", |s| -> Result<String, use_xml::Error> {
+        let y = e.attr(NO, "y", parse::string)?;
+        assert!(e.attr_opt(NO, "missing", parse::string)?.is_none());
         assert_eq!(
-            e.attr("x", parse::string).unwrap_err(),
-            already_used("/a", pos(1, 1), Item::Attr("x".to_owned()))
+            e.attr(NO, "x", parse::string).unwrap_err(),
+            already_used("/a", pos(1, 1), Item::attr("", "x"))
         );
         Ok(format!("{s}{y}"))
     })?;
@@ -1189,28 +1336,15 @@ fn error_kind_accessors() {
 }
 
 #[test]
-fn child_prefix_mismatch_with_unprefixed_child() {
-    assert_eq!(
-        parse_str("<r xmlns:a=\"urn:a\">\n  <c/>\n  <a:c/></r>").unwrap_err(),
-        ErrorKind::ChildPrefixMismatch {
-            path: "/r".to_owned(),
-            position: pos(3, 3),
-            name: "c".to_owned(),
-            first_prefix: String::new(),
-            second_prefix: "a".to_owned(),
-        }
-    );
-}
-
-#[test]
 fn requesting_child_name_marks_all_children_as_used() -> anyhow::Result<()> {
-    let e = parse_str("<a><b/><b/></a>")?;
+    let doc = parse_str("<a><b/><b/></a>")?;
+    let e = doc.root();
     assert_eq!(
-        e.child("b").unwrap_err(),
+        e.child(NO, "b").unwrap_err(),
         ErrorKind::WrongCount {
             path: "/a".to_owned(),
             position: pos(1, 1),
-            name: "b".to_owned(),
+            name: QualifiedName::new("", "b"),
             expected: "exactly one",
             found: 2
         }
@@ -1221,7 +1355,8 @@ fn requesting_child_name_marks_all_children_as_used() -> anyhow::Result<()> {
 
 #[test]
 fn line_endings_in_cdata_are_normalized() -> anyhow::Result<()> {
-    let e = parse_str("<a><![CDATA[x\r\ny\rz]]></a>")?;
+    let doc = parse_str("<a><![CDATA[x\r\ny\rz]]></a>")?;
+    let e = doc.root();
     assert_eq!(e.text(parse::string)?, "x\ny\nz");
     Ok(())
 }
@@ -1232,7 +1367,8 @@ fn line_endings_in_cdata_are_normalized() -> anyhow::Result<()> {
 
 #[test]
 fn debug_prints_only_the_element() -> anyhow::Result<()> {
-    let e = parse_str(r#"<r x="1"><a y="2"><b/></a><a/></r>"#)?;
+    let doc = parse_str(r#"<r x="1"><a y="2"><b/></a><a/></r>"#)?;
+    let e = doc.root();
     assert_eq!(
         format!("{e:?}"),
         r#"Elem { path: "/r", position: Position { line: 1, column: 1 }, attrs: {"x": "1"}, children: {"a": 2}, text: "" }"#
@@ -1243,7 +1379,7 @@ fn debug_prints_only_the_element() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/r".to_owned(),
             position: pos(1, 1),
-            item: Item::Attr("x".to_owned())
+            item: Item::attr("", "x")
         }
     );
     Ok(())
@@ -1251,7 +1387,8 @@ fn debug_prints_only_the_element() -> anyhow::Result<()> {
 
 #[test]
 fn debug_of_deep_document_is_small() -> anyhow::Result<()> {
-    let e = parse_str(&("<a>".repeat(MAX_DEPTH) + &"</a>".repeat(MAX_DEPTH)))?;
+    let doc = parse_str(&("<a>".repeat(MAX_DEPTH) + &"</a>".repeat(MAX_DEPTH)))?;
+    let e = doc.root();
     assert!(format!("{e:#?}").len() < 200);
     Ok(())
 }
@@ -1259,7 +1396,8 @@ fn debug_of_deep_document_is_small() -> anyhow::Result<()> {
 #[test]
 fn debug_cuts_long_values() -> anyhow::Result<()> {
     let long = "č".repeat(MAX_VALUE_CHARS + 1);
-    let e = parse_str(&format!(r#"<a x="{long}">{long}</a>"#))?;
+    let doc = parse_str(&format!(r#"<a x="{long}">{long}</a>"#))?;
+    let e = doc.root();
     let cut = format!("{}…", "č".repeat(MAX_VALUE_CHARS));
     assert_eq!(
         format!("{e:?}"),
@@ -1274,15 +1412,15 @@ fn debug_cuts_long_values() -> anyhow::Result<()> {
 fn invalid_value_cuts_long_values() -> anyhow::Result<()> {
     let exact = "x".repeat(MAX_VALUE_CHARS);
     let long = "ž".repeat(MAX_VALUE_CHARS + 1);
-    let e = parse_str(&format!(r#"<a x="{exact}">{long}</a>"#))?;
+    let doc = parse_str(&format!(r#"<a x="{exact}">{long}</a>"#))?;
+    let e = doc.root();
     assert_eq!(
-        e.attr("x", parse::u8).unwrap_err(),
+        e.attr(NO, "x", parse::u8).unwrap_err(),
         ErrorKind::InvalidValue {
             path: "/a".to_owned(),
             position: pos(1, 1),
-            item: Item::Attr("x".to_owned()),
-            value: exact,
-            message: "expected u8".to_owned()
+            item: Item::attr("", "x"),
+            message: format!("expected u8, got {exact:?}")
         }
     );
     assert_eq!(
@@ -1291,8 +1429,7 @@ fn invalid_value_cuts_long_values() -> anyhow::Result<()> {
             path: "/a".to_owned(),
             position: pos(1, 1),
             item: Item::Text,
-            value: format!("{}…", "ž".repeat(MAX_VALUE_CHARS)),
-            message: "expected u8".to_owned()
+            message: format!("expected u8, got \"{}…\"", "ž".repeat(MAX_VALUE_CHARS))
         }
     );
     Ok(())
@@ -1311,12 +1448,10 @@ fn mixed_content_whitespace_cdata_before_child() {
 }
 
 #[test]
-fn elem_is_send() -> anyhow::Result<()> {
-    // `Elem` is `Send` but not `Sync` (checked by a `compile_fail` doc test in `lib.rs`).
-    fn assert_send<T: Send>(_: &T) {}
-    let e = parse_str("<a/>")?;
-    assert_send(&e);
-    let name = std::thread::spawn(move || e.name().to_owned())
+fn document_is_send() -> anyhow::Result<()> {
+    // `Document` is `Send` but not `Sync` (checked by a `compile_fail` doc test in `lib.rs`).
+    let doc = parse_str("<a/>")?;
+    let name = std::thread::spawn(move || doc.root().local_name().to_owned())
         .join()
         .map_err(|_| anyhow::anyhow!("thread panicked"))?;
     assert_eq!(name, "a");

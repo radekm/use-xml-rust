@@ -1,31 +1,41 @@
 //! Value parsers for attribute values and texts.
 //!
-//! A value parser is any function `FnOnce(&str) -> Result<T, E>` where `E: Display`.
-//! The parsers in this module return `Result<T, String>`. All formats are strict:
-//! surrounding whitespace is not allowed.
+//! A value parser is any function `FnOnce(String) -> Result<T, E>` where `E: Display`.
+//! The value is moved into the parser, so e.g. [`string`] returns it without copying.
+//! The parsers in this module return `Result<T, String>` and their error messages contain
+//! the rejected value (cut to [`MAX_VALUE_CHARS`](crate::MAX_VALUE_CHARS) characters).
+//! All formats are strict: surrounding whitespace is not allowed.
 //!
 //! ```
-//! use use_xml::parse;
+//! use use_xml::{NamespaceHandle, parse};
 //!
-//! let root = use_xml::parse_str(r#"<item price="12.50" count="3" kind="b" />"#)?;
-//! let price = root.attr("price", parse::decimal_non_negative)?;
-//! let count = root.attr("count", parse::u32)?;
-//! let kind = root.attr("kind", parse::enumeration(&[("a", 1), ("b", 2)]))?;
+//! let doc = use_xml::parse_str(r#"<item price="12.50" count="3" kind="b" />"#)?;
+//! let (root, ns) = (doc.root(), NamespaceHandle::NO_NAMESPACE);
+//! let price = root.attr(ns, "price", parse::decimal_non_negative)?;
+//! let count = root.attr(ns, "count", parse::u32)?;
+//! let kind = root.attr(ns, "kind", parse::enumeration(&[("a", 1), ("b", 2)]))?;
 //! assert_eq!((price.to_string(), count, kind), ("12.50".to_owned(), 3, 2));
-//! root.check_all_used()?;
+//! doc.check_all_used()?;
 //! # Ok::<(), use_xml::Error>(())
 //! ```
 
 use rust_decimal::Decimal;
 use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
+use crate::error::truncate_value;
+
+/// Formats an error message with the rejected value.
+fn error(expected: &str, value: &str) -> String {
+    format!("expected {expected}, got {:?}", truncate_value(value))
+}
+
 /// Returns the string unchanged.
 ///
 /// # Errors
 ///
 /// Never fails. The `Result` is returned only for consistency with the other parsers.
-pub fn string(s: &str) -> Result<String, String> {
-    Ok(s.to_owned())
+pub fn string(s: String) -> Result<String, String> {
+    Ok(s)
 }
 
 /// Returns the string if it is not empty.
@@ -33,11 +43,11 @@ pub fn string(s: &str) -> Result<String, String> {
 /// # Errors
 ///
 /// Returns an error message if the string is empty.
-pub fn string_non_empty(s: &str) -> Result<String, String> {
+pub fn string_non_empty(s: String) -> Result<String, String> {
     if s.is_empty() {
-        Err("expected non-empty string".to_owned())
+        Err(error("non-empty string", &s))
     } else {
-        Ok(s.to_owned())
+        Ok(s)
     }
 }
 
@@ -49,21 +59,24 @@ pub fn string_non_empty(s: &str) -> Result<String, String> {
 /// # Errors
 ///
 /// Returns an error message if the string is empty or consists only of XML whitespace.
-pub fn string_non_whitespace(s: &str) -> Result<String, String> {
+pub fn string_non_whitespace(s: String) -> Result<String, String> {
     if s.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r')) {
-        Err("expected string with at least one non-whitespace character".to_owned())
+        Err(error(
+            "string with at least one non-whitespace character",
+            &s,
+        ))
     } else {
-        Ok(s.to_owned())
+        Ok(s)
     }
 }
 
 /// Returns a parser which accepts only one of the given strings.
-pub fn one_of<'a>(cases: &'a [&'a str]) -> impl Fn(&str) -> Result<String, String> + 'a {
+pub fn one_of<'a>(cases: &'a [&'a str]) -> impl Fn(String) -> Result<String, String> + 'a {
     move |s| {
-        if cases.contains(&s) {
-            Ok(s.to_owned())
+        if cases.contains(&s.as_str()) {
+            Ok(s)
         } else {
-            Err(format!("expected one of {cases:?}"))
+            Err(error(&format!("one of {cases:?}"), &s))
         }
     }
 }
@@ -71,12 +84,12 @@ pub fn one_of<'a>(cases: &'a [&'a str]) -> impl Fn(&str) -> Result<String, Strin
 /// Returns a parser which maps the given strings to values.
 pub fn enumeration<'a, T: Clone>(
     cases: &'a [(&'a str, T)],
-) -> impl Fn(&str) -> Result<T, String> + 'a {
+) -> impl Fn(String) -> Result<T, String> + 'a {
     move |s| match cases.iter().find(|(key, _)| *key == s) {
         Some((_, value)) => Ok(value.clone()),
         None => {
             let keys: Vec<&str> = cases.iter().map(|(key, _)| *key).collect();
-            Err(format!("expected one of {keys:?}"))
+            Err(error(&format!("one of {keys:?}"), &s))
         }
     }
 }
@@ -90,8 +103,8 @@ macro_rules! integer_parsers {
             ///
             /// Returns an error message if the string is not a number in this format
             /// or the number is out of the range of the type.
-            pub fn $t(s: &str) -> Result<$t, String> {
-                s.parse::<$t>().map_err(|_| concat!("expected ", stringify!($t)).to_owned())
+            pub fn $t(s: String) -> Result<$t, String> {
+                s.parse::<$t>().map_err(|_| error(stringify!($t), &s))
             }
         )*
     };
@@ -111,18 +124,21 @@ integer_parsers!("`+`": u8, u16, u32, u64, u128, usize);
 /// ```
 /// use use_xml::parse;
 ///
-/// assert_eq!(parse::decimal("12.50").unwrap().to_string(), "12.50");
+/// assert_eq!(parse::decimal("12.50".to_owned()).unwrap().to_string(), "12.50");
 /// let thirty_zeros = format!("1.{}", "0".repeat(30));
-/// assert_eq!(parse::decimal(&thirty_zeros).unwrap().to_string(), "1");
-/// assert!(parse::decimal(&format!("0.{}1", "0".repeat(28))).is_err());
+/// assert_eq!(parse::decimal(thirty_zeros).unwrap().to_string(), "1");
+/// assert!(parse::decimal(format!("0.{}1", "0".repeat(28))).is_err());
 /// ```
 ///
 /// # Errors
 ///
 /// Returns an error message if the string is not in this format
 /// or the number cannot be represented exactly by [`Decimal`].
-pub fn decimal(s: &str) -> Result<Decimal, String> {
-    let error = || "expected decimal".to_owned();
+pub fn decimal(s: String) -> Result<Decimal, String> {
+    decimal_str(&s).ok_or_else(|| error("decimal", &s))
+}
+
+fn decimal_str(s: &str) -> Option<Decimal> {
     let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
     let (int_part, frac_part) = match unsigned.split_once('.') {
         Some((int_part, frac_part)) => (int_part, Some(frac_part)),
@@ -130,26 +146,24 @@ pub fn decimal(s: &str) -> Result<Decimal, String> {
     };
     let all_digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
     if !all_digits(int_part) || !frac_part.is_none_or(all_digits) {
-        return Err(error());
+        return None;
     }
     // `from_str_exact` does not accept a leading `+`.
     let s = s.strip_prefix('+').unwrap_or(s);
     if let Ok(parsed) = Decimal::from_str_exact(s) {
-        return Ok(parsed);
+        return Some(parsed);
     }
     // Retry without trailing zeros after `.`; they do not change the value.
-    let Some(frac_part) = frac_part else {
-        return Err(error());
-    };
+    let frac_part = frac_part?;
     let trimmed_frac = frac_part.trim_end_matches('0');
     if trimmed_frac.len() == frac_part.len() {
-        return Err(error());
+        return None;
     }
     // `s` ends with `frac_part`, so the length of the rest is on a character boundary
     // (all removed characters are ASCII zeros). A trailing `.` is removed too.
     let trimmed = &s[..s.len() - (frac_part.len() - trimmed_frac.len())];
     let trimmed = trimmed.strip_suffix('.').unwrap_or(trimmed);
-    Decimal::from_str_exact(trimmed).map_err(|_| error())
+    Decimal::from_str_exact(trimmed).ok()
 }
 
 /// Like [`decimal`] but rejects negative numbers.
@@ -157,12 +171,10 @@ pub fn decimal(s: &str) -> Result<Decimal, String> {
 /// # Errors
 ///
 /// Returns an error message if [`decimal`] fails or the number is negative.
-pub fn decimal_non_negative(s: &str) -> Result<Decimal, String> {
-    let d = decimal(s)?;
-    if d < Decimal::ZERO {
-        Err("expected non-negative decimal".to_owned())
-    } else {
-        Ok(d)
+pub fn decimal_non_negative(s: String) -> Result<Decimal, String> {
+    match decimal_str(&s) {
+        Some(d) if d >= Decimal::ZERO => Ok(d),
+        _ => Err(error("non-negative decimal", &s)),
     }
 }
 
@@ -171,11 +183,11 @@ pub fn decimal_non_negative(s: &str) -> Result<Decimal, String> {
 /// # Errors
 ///
 /// Returns an error message for any other string.
-pub fn bool(s: &str) -> Result<bool, String> {
-    match s {
+pub fn bool(s: String) -> Result<bool, String> {
+    match s.as_str() {
         "true" => Ok(true),
         "false" => Ok(false),
-        _ => Err("expected bool".to_owned()),
+        _ => Err(error("bool", &s)),
     }
 }
 
@@ -232,10 +244,13 @@ fn primitive_date_time(s: &str) -> Option<(PrimitiveDateTime, &str)> {
 ///
 /// Returns an error message if the string is not in this format
 /// or it is not a valid date and time (e.g. February 30 or hour 24).
-pub fn date_time_utc(s: &str) -> Result<OffsetDateTime, String> {
-    match primitive_date_time(s) {
+pub fn date_time_utc(s: String) -> Result<OffsetDateTime, String> {
+    match primitive_date_time(&s) {
         Some((dt, "Z")) => Ok(dt.assume_utc()),
-        _ => Err("expected UTC date time in format YYYY-MM-DDTHH:MM:SS[.fffffffff]Z".to_owned()),
+        _ => Err(error(
+            "UTC date time in format YYYY-MM-DDTHH:MM:SS[.fffffffff]Z",
+            &s,
+        )),
     }
 }
 
@@ -249,7 +264,7 @@ pub fn date_time_utc(s: &str) -> Result<OffsetDateTime, String> {
 /// Returns an error message if the string is not in this format, it is not a valid date and time,
 /// the offset is out of range (hours above 23 or minutes above 59),
 /// or the date time cannot be converted to UTC.
-pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
+pub fn date_time_offset(s: String) -> Result<OffsetDateTime, String> {
     let parse_offset = |rest: &str| -> Option<UtcOffset> {
         if rest == "Z" {
             return Some(UtcOffset::UTC);
@@ -270,7 +285,7 @@ pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
         }
         UtcOffset::from_hms(sign * hours, sign * minutes, 0).ok()
     };
-    primitive_date_time(s)
+    primitive_date_time(&s)
         .and_then(|(dt, rest)| {
             let dt = dt.assume_offset(parse_offset(rest)?);
             // `time` accepts a date time whose UTC equivalent is outside of its supported range,
@@ -281,8 +296,10 @@ pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
             Some(dt)
         })
         .ok_or_else(|| {
-            "expected date time in format YYYY-MM-DDTHH:MM:SS[.fffffffff](Z|+HH:MM|-HH:MM)"
-                .to_owned()
+            error(
+                "date time in format YYYY-MM-DDTHH:MM:SS[.fffffffff](Z|+HH:MM|-HH:MM)",
+                &s,
+            )
         })
 }
 
@@ -292,13 +309,13 @@ pub fn date_time_offset(s: &str) -> Result<OffsetDateTime, String> {
 /// use use_xml::parse;
 ///
 /// let even = parse::map(parse::u32, |n| if n % 2 == 0 { Ok(n / 2) } else { Err("expected even number".to_owned()) });
-/// assert_eq!(even("8"), Ok(4));
-/// assert!(even("7").is_err());
+/// assert_eq!(even("8".to_owned()), Ok(4));
+/// assert!(even("7".to_owned()).is_err());
 /// ```
 pub fn map<T, U>(
-    parser: impl Fn(&str) -> Result<T, String>,
+    parser: impl Fn(String) -> Result<T, String>,
     f: impl Fn(T) -> Result<U, String>,
-) -> impl Fn(&str) -> Result<U, String> {
+) -> impl Fn(String) -> Result<U, String> {
     move |s| f(parser(s)?)
 }
 
@@ -308,13 +325,13 @@ pub fn map<T, U>(
 /// use use_xml::parse;
 ///
 /// let small = parse::validate(parse::u32, |n| (*n > 10).then(|| "expected at most 10".to_owned()));
-/// assert_eq!(small("8"), Ok(8));
-/// assert!(small("11").is_err());
+/// assert_eq!(small("8".to_owned()), Ok(8));
+/// assert!(small("11".to_owned()).is_err());
 /// ```
 pub fn validate<T>(
-    parser: impl Fn(&str) -> Result<T, String>,
+    parser: impl Fn(String) -> Result<T, String>,
     check: impl Fn(&T) -> Option<String>,
-) -> impl Fn(&str) -> Result<T, String> {
+) -> impl Fn(String) -> Result<T, String> {
     move |s| {
         let value = parser(s)?;
         match check(&value) {

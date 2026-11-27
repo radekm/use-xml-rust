@@ -9,7 +9,6 @@ repository = "https://github.com/radekm/use-xml-rust"
 autobenches = false
 
 [dependencies]
-quick-xml = "=0.42.0"
 thiserror = "=2.0.21"
 rust_decimal = { version = "=1.43.0", default-features = false }
 time = { version = "=0.3.55", default-features = false }

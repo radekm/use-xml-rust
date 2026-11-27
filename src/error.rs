@@ -3,6 +3,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
+use crate::names::QualifiedName;
+
 /// Maximum number of characters of a value stored in [`ErrorKind::InvalidValue`]
 /// and shown by the `Debug` implementation of [`Elem`](crate::Elem).
 /// Longer values are cut and end with `…`.
@@ -35,12 +37,24 @@ impl fmt::Display for Position {
 /// A part of an element which can be used.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Item {
-    /// An attribute with the given local name.
-    Attr(String),
-    /// Children with the given local name.
-    Child(String),
+    /// An attribute with the given qualified name.
+    Attr(QualifiedName),
+    /// Children with the given qualified name.
+    Child(QualifiedName),
     /// The text content of the element.
     Text,
+}
+
+impl Item {
+    /// An attribute with the given namespace name and local name.
+    pub fn attr(namespace: &str, local_name: &str) -> Self {
+        Item::Attr(QualifiedName::new(namespace, local_name))
+    }
+
+    /// Children with the given namespace name and local name.
+    pub fn child(namespace: &str, local_name: &str) -> Self {
+        Item::Child(QualifiedName::new(namespace, local_name))
+    }
 }
 
 impl fmt::Display for Item {
@@ -49,6 +63,44 @@ impl fmt::Display for Item {
             Item::Attr(name) => write!(f, "attribute `{name}`"),
             Item::Child(name) => write!(f, "child `{name}`"),
             Item::Text => f.write_str("text"),
+        }
+    }
+}
+
+/// A limit which a document exceeded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Limit {
+    /// [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
+    NameLen,
+    /// [`MAX_PREFIX_LEN`](crate::MAX_PREFIX_LEN).
+    PrefixLen,
+    /// [`MAX_NAMESPACE_LEN`](crate::MAX_NAMESPACE_LEN).
+    NamespaceLen,
+    /// [`MAX_NAMESPACES`](crate::MAX_NAMESPACES).
+    Namespaces,
+    /// The number of qualified names (`u32::MAX`).
+    QualifiedNames,
+    /// [`MAX_ATTRS`](crate::MAX_ATTRS).
+    Attrs,
+    /// [`MAX_CHILD_NAMES`](crate::MAX_CHILD_NAMES).
+    ChildNames,
+}
+
+impl fmt::Display for Limit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::names::*;
+        match self {
+            Limit::NameLen => write!(f, "name longer than {MAX_NAME_LEN} bytes"),
+            Limit::PrefixLen => write!(f, "prefix longer than {MAX_PREFIX_LEN} bytes"),
+            Limit::NamespaceLen => write!(f, "namespace longer than {MAX_NAMESPACE_LEN} bytes"),
+            Limit::Namespaces => write!(f, "more than {MAX_NAMESPACES} namespaces"),
+            Limit::QualifiedNames => write!(f, "more than {} qualified names", u32::MAX),
+            Limit::Attrs => write!(f, "element with more than {MAX_ATTRS} attributes"),
+            Limit::ChildNames => write!(
+                f,
+                "element with children with more than {MAX_CHILD_NAMES} different names"
+            ),
         }
     }
 }
@@ -63,7 +115,7 @@ impl fmt::Display for Item {
 /// let error = use_xml::parse_str("<r>\n  <a><b/>text</a></r>").unwrap_err();
 /// assert!(matches!(error.kind(), ErrorKind::MixedContent { .. }));
 /// assert_eq!(error.path(), Some("/r/a[1]"));
-/// assert_eq!(error.position(), use_xml::Position { line: 2, column: 3 });
+/// assert_eq!(error.position(), Some(use_xml::Position { line: 2, column: 3 }));
 /// ```
 #[derive(Clone, PartialEq, Eq, thiserror::Error)]
 #[error(transparent)]
@@ -81,7 +133,7 @@ impl Error {
     }
 
     /// Returns the position in the source document. See [`ErrorKind::position`].
-    pub fn position(&self) -> Position {
+    pub fn position(&self) -> Option<Position> {
         self.0.position()
     }
 
@@ -118,13 +170,21 @@ impl PartialEq<ErrorKind> for Error {
 #[non_exhaustive]
 pub enum ErrorKind {
     /// The document is not well-formed XML.
-    ///
-    /// An invalid reference in an attribute value points to the `&` of the reference.
     #[error("malformed XML at {position}: {message}")]
     Xml {
         /// Description of the problem.
         message: String,
         /// Where the problem was detected.
+        position: Position,
+    },
+
+    /// The document is not namespace-well-formed, e.g. it uses an undeclared prefix
+    /// or binds a reserved prefix or namespace.
+    #[error("namespace error at {position}: {message}")]
+    Namespace {
+        /// Description of the problem.
+        message: String,
+        /// Position of the name or the declaration.
         position: Position,
     },
 
@@ -138,7 +198,7 @@ pub enum ErrorKind {
     },
 
     /// A node which is not allowed at the given place,
-    /// e.g. `DOCTYPE` or text outside of the root element.
+    /// e.g. `DOCTYPE`, a second root element, or text outside of the root element.
     #[error("unexpected {node} at {position}")]
     UnexpectedNode {
         /// Description of the node.
@@ -147,13 +207,22 @@ pub enum ErrorKind {
         position: Position,
     },
 
+    /// A limit was exceeded (see [`Limit`]).
+    ///
+    /// The position is `None` only for [`Document::namespace`](crate::Document::namespace).
+    #[error("limit exceeded{}: {limit}", at(position))]
+    LimitExceeded {
+        /// The exceeded limit.
+        limit: Limit,
+        /// Where the limit was exceeded.
+        position: Option<Position>,
+    },
+
     /// A reference to an entity which is neither predefined nor a character reference.
-    #[error("unknown entity `{name}` in element {path} at {position}")]
+    #[error("unknown entity `{name}` at {position}")]
     UnknownEntity {
         /// Name of the entity.
         name: String,
-        /// Path of the element containing the reference.
-        path: String,
         /// Position of the reference (also inside an attribute value).
         position: Position,
     },
@@ -167,36 +236,16 @@ pub enum ErrorKind {
         position: Position,
     },
 
-    /// An element has multiple attributes with the same local name.
-    ///
-    /// Prefixes are ignored, so e.g. `xml:lang` and `lang` on one element are duplicates too.
-    /// Namespace declarations (`xmlns`, `xmlns:*`) are skipped and never reported.
-    #[error("element {path} at {position} contains multiple attributes with local name `{name}`")]
+    /// An element has two attributes with the same name as written
+    /// or with the same namespace and local name.
+    #[error("element {path} contains duplicate attribute `{name}` at {position}")]
     DuplicateAttr {
         /// Path of the element.
         path: String,
-        /// Position of the element.
+        /// Position of the second attribute.
         position: Position,
-        /// Local name of the attribute.
+        /// Name of the second attribute as written in the document.
         name: String,
-    },
-
-    /// An element has children with the same local name but different prefixes.
-    #[error(
-        "element {path} contains children with local name `{name}` \
-         but different prefixes `{first_prefix}` and `{second_prefix}` (second one at {position})"
-    )]
-    ChildPrefixMismatch {
-        /// Path of the parent element.
-        path: String,
-        /// Position of the child whose prefix differs.
-        position: Position,
-        /// Local name of the children.
-        name: String,
-        /// Prefix of the first child with the local name (empty if none).
-        first_prefix: String,
-        /// Prefix of the child which differs (empty if none).
-        second_prefix: String,
     },
 
     /// Elements are nested deeper than [`MAX_DEPTH`](crate::MAX_DEPTH).
@@ -212,6 +261,15 @@ pub enum ErrorKind {
         max_depth: usize,
     },
 
+    /// A [`NamespaceHandle`](crate::NamespaceHandle) which does not belong to the document.
+    #[error("element {path} at {position} received a namespace handle of another document")]
+    InvalidNamespaceHandle {
+        /// Path of the element.
+        path: String,
+        /// Position of the element.
+        position: Position,
+    },
+
     /// A required attribute or child is missing.
     #[error("element {path} at {position} has no {item}")]
     Missing {
@@ -223,15 +281,15 @@ pub enum ErrorKind {
         item: Item,
     },
 
-    /// An unexpected number of children with the given local name.
+    /// An unexpected number of children with the given qualified name.
     #[error("element {path} at {position} has {found} children `{name}`, expected {expected}")]
     WrongCount {
         /// Path of the element.
         path: String,
         /// Position of the element.
         position: Position,
-        /// Local name of the children.
-        name: String,
+        /// Qualified name of the children.
+        name: QualifiedName,
         /// Description of the expected count, e.g. `exactly one`.
         expected: &'static str,
         /// The actual count.
@@ -250,7 +308,10 @@ pub enum ErrorKind {
     },
 
     /// A value parser rejected an attribute value or text.
-    #[error("invalid {item} of element {path} at {position}: {message} (value: {value:?})")]
+    ///
+    /// The value itself is not stored because it was moved into the value parser.
+    /// The parsers from the [`parse`](crate::parse) module include it in the message.
+    #[error("invalid {item} of element {path} at {position}: {message}")]
     InvalidValue {
         /// Path of the element.
         path: String,
@@ -258,9 +319,6 @@ pub enum ErrorKind {
         position: Position,
         /// The attribute or text.
         item: Item,
-        /// The rejected value. Values longer than [`MAX_VALUE_CHARS`] characters
-        /// are cut and end with `…`, so a huge text does not end up in the error.
-        value: String,
         /// Message from the value parser.
         message: String,
     },
@@ -282,6 +340,13 @@ pub enum ErrorKind {
     },
 }
 
+fn at(position: &Option<Position>) -> String {
+    match position {
+        Some(position) => format!(" at {position}"),
+        None => String::new(),
+    }
+}
+
 fn unused_message(item: &Item, path: &str, position: &Position) -> String {
     match item {
         Item::Child(_) => format!("element {path} at {position} not used"),
@@ -292,41 +357,53 @@ fn unused_message(item: &Item, path: &str, position: &Position) -> String {
 impl ErrorKind {
     /// Returns the position in the source document.
     ///
-    /// It is the position of the problem for [`Xml`](Self::Xml), [`Encoding`](Self::Encoding),
-    /// [`UnexpectedNode`](Self::UnexpectedNode), and [`UnknownEntity`](Self::UnknownEntity),
-    /// the position of the offending child for [`ChildPrefixMismatch`](Self::ChildPrefixMismatch)
+    /// It is the position of the problem for [`Xml`](Self::Xml), [`Namespace`](Self::Namespace),
+    /// [`Encoding`](Self::Encoding), [`UnexpectedNode`](Self::UnexpectedNode),
+    /// [`LimitExceeded`](Self::LimitExceeded), and [`UnknownEntity`](Self::UnknownEntity),
+    /// the position of the offending attribute or child for [`DuplicateAttr`](Self::DuplicateAttr)
     /// and [`MaxDepthExceeded`](Self::MaxDepthExceeded), and otherwise the position
     /// of the element given by [`path`](Self::path).
-    pub fn position(&self) -> Position {
+    ///
+    /// Returns `None` only for [`LimitExceeded`](Self::LimitExceeded)
+    /// from [`Document::namespace`](crate::Document::namespace).
+    pub fn position(&self) -> Option<Position> {
         match self {
+            Self::LimitExceeded { position, .. } => *position,
             Self::Xml { position, .. }
+            | Self::Namespace { position, .. }
             | Self::Encoding { position, .. }
             | Self::UnexpectedNode { position, .. }
             | Self::UnknownEntity { position, .. }
             | Self::MixedContent { position, .. }
             | Self::DuplicateAttr { position, .. }
-            | Self::ChildPrefixMismatch { position, .. }
             | Self::MaxDepthExceeded { position, .. }
+            | Self::InvalidNamespaceHandle { position, .. }
             | Self::Missing { position, .. }
             | Self::WrongCount { position, .. }
             | Self::AlreadyUsed { position, .. }
             | Self::InvalidValue { position, .. }
-            | Self::Unused { position, .. } => *position,
+            | Self::Unused { position, .. } => Some(*position),
         }
     }
 
     /// Returns the path of the element related to the error, e.g. `/root/items[1]/item[3]`.
     ///
-    /// Returns `None` for [`Xml`](Self::Xml), [`Encoding`](Self::Encoding),
-    /// and [`UnexpectedNode`](Self::UnexpectedNode), which are not related to an element.
+    /// Returns `None` for [`Xml`](Self::Xml), [`Namespace`](Self::Namespace),
+    /// [`Encoding`](Self::Encoding), [`UnexpectedNode`](Self::UnexpectedNode),
+    /// [`LimitExceeded`](Self::LimitExceeded), and [`UnknownEntity`](Self::UnknownEntity),
+    /// which are detected before the related element is complete.
     pub fn path(&self) -> Option<&str> {
         match self {
-            Self::Xml { .. } | Self::Encoding { .. } | Self::UnexpectedNode { .. } => None,
-            Self::UnknownEntity { path, .. }
-            | Self::MixedContent { path, .. }
+            Self::Xml { .. }
+            | Self::Namespace { .. }
+            | Self::Encoding { .. }
+            | Self::UnexpectedNode { .. }
+            | Self::LimitExceeded { .. }
+            | Self::UnknownEntity { .. } => None,
+            Self::MixedContent { path, .. }
             | Self::DuplicateAttr { path, .. }
-            | Self::ChildPrefixMismatch { path, .. }
             | Self::MaxDepthExceeded { path, .. }
+            | Self::InvalidNamespaceHandle { path, .. }
             | Self::Missing { path, .. }
             | Self::WrongCount { path, .. }
             | Self::AlreadyUsed { path, .. }

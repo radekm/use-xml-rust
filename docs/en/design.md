@@ -5,33 +5,43 @@ Czech version: [../cs/design.md](../cs/design.md).
 `use-xml` extracts data from XML documents. It is a Rust counterpart of the F# library
 [UseData.Xml](https://github.com/radekm/UseData.Xml). The API does not copy the original exactly:
 
-- No closures. Navigation methods return references to child elements.
+- No closures. Navigation methods return child elements.
 - Unused content is not reported when an element is dropped. The user explicitly calls
   `check_all_used`, which returns an error describing the first unused item.
 - Attributes and children are stored in `BTreeMap`, so iteration order and error reporting are deterministic.
+- Namespaces are supported. Elements and attributes are identified by a namespace and a local name.
 
 ## Data model
 
-The whole document is parsed into a tree of `Elem` values:
+The whole document is parsed into a `Document`. It owns an arena of element nodes
+(in document order, the root first) and the interned names:
 
 ```rust
-pub struct Elem {
-    path: Arc<ElemPath>,                      // Local name and path for error messages, e.g. `/root/items[1]/item[3]`.
-    position: Position,                       // Line and column of the start tag.
-    // Key is the local name; the flag says whether the attribute was used.
-    attrs: BTreeMap<String, (Cell<bool>, String)>,
-    // Key is the local name; document order within a name.
-    children: BTreeMap<String, (Cell<bool>, Vec<Elem>)>,
-    // Requested attributes and children which do not exist.
-    // Allocated only on the first such request because it is rarely needed.
-    missing_used: RefCell<Option<Box<BTreeSet<Item>>>>,
-    text: Box<str>,
-    // The text contains a non-whitespace character or a CDATA section.
+pub struct Document {
+    nodes: Vec<Node>,
+    names: NameTable,
+}
+
+struct Node {
+    name: QualifiedNameHandle,
+    raw_name: u32,                 // Name as written (with the prefix), used in paths.
+    parent: Option<u32>,           // Index of the parent node.
+    index: u32,                    // 1-based index among siblings with the same qualified name.
+    position: Position,            // Line and column of the start tag.
     text_significant: bool,
-    text_used: Cell<bool>,
-    // `ignore_all` was called: everything in the element, including its descendants, is used
-    // and any further request fails with "already used".
-    all_used: Cell<bool>,
+    all_used: Cell<bool>,          // `ignore_all` was called.
+    // `None` after the text was used.
+    text: Cell<Option<Box<str>>>,
+    // `None` after the attribute was used or for a requested missing attribute.
+    attrs: RefCell<BTreeMap<QualifiedNameHandle, Option<Box<str>>>>,
+    // The flag says whether the name was used. Requested missing names have an empty `Vec`.
+    children: RefCell<BTreeMap<QualifiedNameHandle, (bool, Vec<u32>)>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct Elem<'doc> {
+    doc: &'doc Document,
+    index: u32,
 }
 
 pub struct Position {
@@ -40,49 +50,113 @@ pub struct Position {
 }
 ```
 
-`ElemPath` is a node of a linked list `{ parent: Option<Arc<ElemPath>>, name, prefix, index }`
-shared between an element and its descendants, so each element costs only one small allocation.
-The path is formatted like XPath: the root without an index, other elements with a 1-based index
-among siblings with the same local name, e.g. `/root/items[1]/item[3]`.
+`Elem<'doc>` is a small `Copy` handle. It borrows the document, so the document outlives
+all its elements (an `Elem` which outlives its document does not compile). The parent
+is an index into the arena, so a child can get its parent without reference cycles.
 
-The "used" flag of an existing attribute or child name is stored next to its value,
-so using it does not allocate. Only requests for names which do not exist
-are recorded in the `missing_used` set (so that a second request fails too).
+Attribute values and texts are moved out of the document when they are used, so their usage
+does not need a separate flag: `Some` means unused, `None` means used. Values are stored
+as `Box<str>`, which converts into `String` without copying. Elements are not moved;
+the `bool` flag in `children` says whether a child name was used.
 
-All API methods take `&self`. Usage is tracked with interior mutability (`Cell`, `RefCell`),
-so a user can hold references to several children and still read the parent's attributes.
-`Elem` is therefore not `Sync`.
+Requests for a missing attribute or child are recorded in the same maps:
+a missing attribute gets `None`, a missing child name gets `(true, Vec::with_capacity(0))`.
+Their qualified names are interned (see below) if they are not interned yet.
 
-`Debug` of `Elem` and `ElemPath` is implemented manually. A derived `Debug` is wrong for this tree:
-it recurses through all descendants and every descendant prints the whole chain of its ancestors,
-so for a document nested 256 levels deep the output had megabytes, `{:#?}` ran for minutes,
-and the recursion needed hundreds of kilobytes of stack. `Debug` of `Elem` prints only the element:
-its path, position, attributes, the number of children for each name, and its text.
-Values longer than `MAX_VALUE_CHARS = 100` characters are cut and end with `…`.
+All API methods take `self` (`Elem` is `Copy`) or `&self` (`Document`). Usage is tracked
+with interior mutability (`Cell`, `RefCell`), so a user can hold several elements
+and still read the parent's attributes. A `RefCell` is never borrowed while user code
+(e.g. a value parser) runs. `Document` is therefore `Send` but not `Sync`, and `Elem` is neither.
 
-Document order is kept only among children with the same local name.
+`Debug` of `Elem` prints only the element: its path, position, attributes, the number of children
+for each name, and its text (used values are shown as `<used>`). Values longer than
+`MAX_VALUE_CHARS = 100` characters are cut and end with `…`. `Debug` of `Document`
+prints the number of elements and the root.
+
+Document order is kept only among children with the same qualified name.
 The order between children with different names is lost (as in the original).
+
+### Interning
+
+Namespace names (URIs) are interned into `NamespaceHandle(u8)` and qualified names
+(a namespace handle and a local name) into `QualifiedNameHandle(u32)`.
+A handle is an index into a `Vec`; a `BTreeMap` maps the name to its handle
+(the strings are stored in both). The qualified names are kept in one map per namespace,
+so a lookup by `(NamespaceHandle, &str)` does not allocate.
+
+The empty namespace (`NamespaceHandle::NO_NAMESPACE`, handle 0) and the `xml` namespace
+(`NamespaceHandle::XML`, handle 1) are always interned. Every declared namespace is interned
+when its declaration is parsed.
+
+After parsing, the names from the document are immutable, so e.g. `Elem::local_name` returns `&'doc str`.
+Names interned later (`Document::namespace`, qualified names of requested missing items)
+are kept in a second level in a `RefCell`; their handles continue after the handles of the parser.
+
+A `NamespaceHandle` belongs to one document. Using a handle which is out of range
+of the document is the error `InvalidNamespaceHandle`; a handle of another document
+which happens to be in range cannot be detected.
+
+### Paths
+
+The path of an element is formatted like XPath from the names as written in the document
+(with prefixes): the root without an index, other elements with a 1-based index among siblings
+with the same qualified name, e.g. `/root/items[1]/item[3]` or `/x/p:item[2]`.
+Paths are built only when needed (errors, `Elem::path`) by walking the parents.
 
 ## Parsing rules
 
-Parsing builds the whole tree and checks all structural rules up front.
+The parser is our own (no `quick-xml`). It accepts only documents which are well-formed
+XML 1.0 and namespace-well-formed (Namespaces in XML 1.0) and which follow the rules below.
 Any violation is a parse error, not an error discovered later during extraction.
+The parser uses no recursion; open elements are kept on an explicit stack.
 
-### Names and namespaces
+### Characters and names
 
-- Namespaces are ignored. Elements and attributes are identified only by their local name
-  (the part after the prefix).
-- Attributes `xmlns` and `xmlns:*` are skipped before any other check. This is intentional:
-  namespaces are ignored, so namespace declarations are not checked at all.
-  References in their values are neither decoded nor validated (e.g. `xmlns="&foo;"` is accepted),
-  and duplicate declarations (e.g. two `xmlns` or two `xmlns:p` attributes) are not detected.
-- Two attributes of one element with the same local name (e.g. `a:x` and `b:x`) are an error.
-  This includes attributes with the reserved prefix `xml`: `xml:lang` together with `lang`
-  (or `xml:space` together with `space`) on one element is a `DuplicateAttr` error.
-- Two children of one element with the same local name but different prefixes
-  (e.g. `<a:item/>` and `<b:item/>`) are an error, so one `Vec<Elem>` never mixes elements
-  with different qualified names. Children with the same prefix (or both without a prefix) are fine.
-  Note: the default namespace (`xmlns="..."`) does not change the prefix, so it is not detected.
+- Every character must match the `Char` production of XML 1.0 (no control characters except
+  tab, line feed, and carriage return, no `U+FFFE` and `U+FFFF`), also when written
+  as a character reference (`&#1;` is an error).
+- Element names, attribute names, processing instruction targets, and entity names must match
+  the `Name` production. With namespaces, element and attribute names are `QName`s
+  (`prefix:local` or `local`, at most one colon, neither part empty);
+  processing instruction targets and entity names contain no colon.
+- Whitespace means XML whitespace: space, tab, carriage return, and line feed.
+- Line endings are normalized: `\r\n` and a lone `\r` become `\n`.
+
+### Limits
+
+If a limit is exceeded, parsing fails with `LimitExceeded`:
+
+- `MAX_NAME_LEN = 512` bytes (not code points) of a local name of an element or an attribute,
+  of a processing instruction target, and of an entity name.
+- `MAX_PREFIX_LEN = 64` bytes of a namespace prefix (also in `xmlns:prefix`).
+- `MAX_NAMESPACE_LEN = 4096` bytes of a namespace name (after decoding references).
+- `MAX_NAMESPACES = 256` different namespaces in a document (including the empty and the `xml` namespace).
+  `Document::namespace` fails with the same error (without a position).
+- `u32::MAX` qualified names.
+- `MAX_ATTRS = 1000` attributes of one element, namespace declarations included.
+- `MAX_CHILD_NAMES = 1000` different qualified names of children of one element.
+  Children with the same qualified name can repeat any number of times.
+- `MAX_DEPTH = 256` nesting levels (error `MaxDepthExceeded`). The root element has depth 1.
+
+### Namespaces
+
+- `xmlns="uri"` declares the default namespace, `xmlns=""` undeclares it,
+  `xmlns:p="uri"` binds the prefix `p`. A declaration is in scope in its element
+  (including the element's own name and attributes, even if they precede the declaration)
+  and in its descendants.
+- An unprefixed element is in the default namespace (or in no namespace).
+  An unprefixed attribute is always in no namespace.
+- The prefix `xml` is bound to `http://www.w3.org/XML/1998/namespace`. It may be declared only
+  with this namespace, and this namespace must not be bound to another prefix or be the default namespace.
+- The prefix `xmlns` must not be declared or used for elements; the namespace
+  `http://www.w3.org/2000/xmlns/` must not be declared.
+- A prefix must not be bound to the empty namespace (`xmlns:p=""`).
+- A prefix which is not declared is an error.
+- Namespace declarations are not attributes: they cannot be requested and are not reported as unused.
+- These are `Namespace` errors, except for limits.
+- Two attributes of one element with the same name as written, or with the same namespace and local name
+  (e.g. `a:x` and `b:x` when `a` and `b` are bound to the same namespace), are a `DuplicateAttr` error.
+  This includes duplicate namespace declarations. `xml:lang` and `lang` are different attributes.
 
 ### Content
 
@@ -91,48 +165,41 @@ Any violation is a parse error, not an error discovered later during extraction.
 - If the element has child elements, its text is `""` and not significant.
 - If the element has no child elements, its text is the concatenation of all its text and CDATA,
   including whitespace. The text is significant when it contains a non-whitespace character
-  or at least one CDATA section (even an empty one).
+  or at least one CDATA section (even an empty one). A character reference to a whitespace
+  character is whitespace.
 - An empty element (`<a/>` or `<a></a>`) has text `""` that is not significant.
-- Entity and character references are decoded. Only the predefined XML entities
-  (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`) and character references are supported.
-- Comments and processing instructions are ignored everywhere.
-- Whitespace means XML whitespace: space, tab, carriage return, and line feed.
-- Line endings in text and CDATA are normalized to `\n`.
-  Attribute values are normalized as required by XML (e.g. line breaks become spaces).
-- Known limitation: `quick-xml` is not a fully checking parser. Besides the syntax of the markup
-  it checks only comments and matching end tags, so the following is not detected:
-  invalid names (e.g. `<1/>`, `<a 1="x"/>`), names which are not namespace-well-formed
-  (e.g. `<a:/>` has an empty local name, `<a:b:c/>` has the local name `b:c`),
-  empty element names (`< />` and `<a:/>` give an element whose `name()` is `""`;
-  the path of such a root is `/`), a missing whitespace between attributes
-  (e.g. `<a x="1"y="2"/>` is accepted),
-  `<` in attribute values, the content of the XML declaration (e.g. a missing `version`),
-  forbidden characters (control characters, also from character references like `&#1;`;
-  only character references to `0`, to surrogates, and above `U+10FFFF` are rejected),
-  and `]]>` in text. This is a limitation of `quick-xml`, not of this library's rules.
+- Only the predefined entities (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`)
+  and character references (`&#N;`, `&#xH;`) are supported. Other entities are an `UnknownEntity` error.
+  Errors in references point to `&`.
+- `]]>` is not allowed in text, `<` is not allowed in attribute values.
+- Attribute values are normalized: literal tab, line feed, and carriage return
+  (`\r\n` as one) become spaces; characters from references are kept.
+- Whitespace is required between attributes. Whitespace around `=` and before `>` of an end tag is allowed.
+- Comments must not contain `--`. Comments and processing instructions are ignored everywhere.
+  A processing instruction target must not be `xml` in any case.
 
 ### Document
 
-- `parse_str(&str)` parses an already decoded document; the encoding in the XML declaration is ignored.
+- `parse_str(&str)` parses an already decoded document; the encoding in the XML declaration is only checked
+  syntactically.
 - `parse_bytes(&[u8])` parses a document encoded in UTF-8. Other encodings are not supported:
   UTF-16 or UTF-32 (detected by a byte order mark or by the encoded `<` at the start),
   an encoding other than UTF-8 in the XML declaration (case-insensitive),
   or invalid UTF-8 result in an `Encoding` error.
-- A single leading byte order mark is skipped (by `quick-xml`). A second one is an error.
-
+- A single leading byte order mark is skipped and not counted in positions. A second one is an error.
+- The XML declaration is allowed only at the very start. It must contain `version` with a value `1.x`,
+  and optionally `encoding` (a valid encoding name) and `standalone` (`yes` or `no`), in this order.
+  An XML declaration elsewhere is an `UnexpectedNode` error.
 - Before the root element only the XML declaration, whitespace, comments, and processing instructions
-  are allowed. Anything else (including `DOCTYPE`) is an error.
+  are allowed. Anything else (`DOCTYPE`, text, references, CDATA) is an `UnexpectedNode` error.
 - After the root element only whitespace, comments, and processing instructions are allowed.
-- Malformed XML (unclosed or mismatched tags, invalid syntax) is an error.
-- The nesting depth is limited by `MAX_DEPTH = 256`. The root element has depth 1.
-  An element at depth 257 is an error. Parsing, `ignore_all`, `check_all_used`, formatting paths,
-  and dropping the tree do not use recursion, so deep documents cannot overflow the stack.
+- Malformed XML (unclosed or mismatched tags, invalid syntax) is an `Xml` error.
 
 ## Usage tracking
 
 Each of the following counts as one use:
 
-- an attribute name (requested via `attr` / `attr_opt`),
+- an attribute (requested via `attr` / `attr_opt`),
 - a child name (requested via `child` / `child_opt` / `children`),
 - the text (requested via `text`).
 
@@ -148,41 +215,58 @@ Rules:
 
 ### `check_all_used`
 
-`elem.check_all_used()` walks the subtree depth-first and returns an error for the first unused item:
+`elem.check_all_used()` (or `doc.check_all_used()` for the root) walks the subtree depth-first
+and returns an error for the first unused item:
 
-1. an unused attribute (in name order),
+1. an unused attribute,
 2. unused significant text (whitespace-only text that was never requested is not reported),
-3. an unused child name (in name order); the error has the path and the position
+3. an unused child name; the error has the path and the position
    of the first child with this name, not of the parent,
-4. otherwise, it continues with the children of used names (in name order, then document order).
+4. otherwise, it continues with the children of used names (in document order within a name).
 
-Elements marked by `ignore_all` are skipped.
+Attributes and child names are ordered by their qualified name handles, i.e. by the first occurrence
+of the qualified name in the document. Elements marked by `ignore_all` are skipped.
+`check_all_used` and `ignore_all` use no recursion.
 
 ## API sketch
 
 ```rust
-let root = use_xml::parse_str(xml)?;           // Result<Elem, Error>
-let root = use_xml::parse_bytes(bytes)?;       // Result<Elem, Error>, UTF-8 only
+let doc = use_xml::parse_str(xml)?;            // Result<Document, Error>
+let doc = use_xml::parse_bytes(bytes)?;        // Result<Document, Error>, UTF-8 only
 
-root.name();                                   // &str – local name
+let ns = doc.namespace("urn:x")?;              // NamespaceHandle; interned if missing
+let no = doc.namespace("")?;                   // = NamespaceHandle::NO_NAMESPACE
+doc.namespace_uri(ns);                         // Option<String>
+let root = doc.root();                         // Elem<'_>
+
+root.local_name();                             // &str
+root.namespace();                              // NamespaceHandle
+root.namespace_uri();                          // &str
+root.prefixed_name();                          // &str – as written, e.g. `p:item`
+root.parent();                                 // Option<Elem>
+root.document();                               // &Document
+root.path();                                   // String, e.g. `/root/items[1]/item[3]`
 root.position();                               // Position
 
-root.attr("id", parse::u32)?;                  // T, error if missing
-root.attr_opt("note", parse::string)?;         // Option<T>
+root.attr(no, "id", parse::u32)?;              // T, error if missing
+root.attr_opt(no, "note", parse::string)?;     // Option<T>
 root.text(parse::decimal)?;                    // T
 
-root.path();                                   // String, e.g. `/root/items[1]/item[3]`
-root.child("pig")?;                            // &Elem, error unless exactly one
-root.child_opt("cat")?;                        // Option<&Elem>, error if more than one
-root.children("dog")?;                         // &[Elem]
+root.child(ns, "pig")?;                        // Elem, error unless exactly one
+root.child_opt(ns, "cat")?;                    // Option<Elem>, error if more than one
+root.children(ns, "dog")?;                     // Vec<Elem>
 
 root.ignore_all();
 root.check_all_used()?;
+doc.check_all_used()?;
 ```
 
-A value parser is any function `FnOnce(&str) -> Result<T, E>` where `E: Display`
-(so e.g. `str::parse::<u8>` works too). The parsers in the `parse` module return `Result<T, String>`. The library wraps its error
-with context (element name, position, attribute name or "text", input value).
+A value parser is any function `FnOnce(String) -> Result<T, E>` where `E: Display`.
+The value is moved into the parser, so `parse::string` returns it without copying;
+`str::parse` can be used as `|s: String| s.parse::<u8>()`.
+The parsers in the `parse` module return `Result<T, String>`; their messages contain the rejected value
+(cut to `MAX_VALUE_CHARS` characters), e.g. `expected u8, got "x"`.
+The library wraps the error with context (element path, position, attribute name or "text").
 The `parse` module provides ready-made parsers, ported from the original:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
 integer types (`i32`, `u32`, `i64`, `u64`, …), `decimal` (`rust_decimal::Decimal`),
@@ -206,30 +290,34 @@ Value formats (all strict, no surrounding whitespace):
 
 The library has one error type `Error` (made with `thiserror`). It is a box around `ErrorKind`,
 so `Result<T, Error>` stays small; the details are available via `Error::kind` and `Error::into_kind`,
-and `Error` can be compared with `ErrorKind` directly. Every error related
-to an element carries the path and position of the element. Variants of `ErrorKind`:
+and `Error` can be compared with `ErrorKind` directly. Variants of `ErrorKind`:
 
-- `Xml` – malformed XML (from `quick-xml`), with position.
-- `Encoding` – invalid UTF-8 or an unsupported encoding (only from `parse_bytes`).
-- `UnexpectedNode` – e.g. `DOCTYPE`, a second root element, or text outside the root element.
-- `UnknownEntity` – an entity reference which is neither predefined nor a character reference.
-  Its position (as well as the position of an `Xml` error caused by an invalid reference)
-  points to the `&` of the reference, also inside an attribute value.
+- `Xml` – malformed XML, with position.
+- `Namespace` – the document is not namespace-well-formed (undeclared prefix, reserved prefix or namespace,
+  invalid qualified name).
+- `Encoding` – invalid UTF-8 or an unsupported encoding.
+- `UnexpectedNode` – e.g. `DOCTYPE`, a second root element, text outside the root element,
+  or an XML declaration which is not at the start.
+- `LimitExceeded` – a limit from above (`Limit`), with an optional position
+  (`None` only from `Document::namespace`).
+- `UnknownEntity` – an entity reference which is neither predefined nor a character reference;
+  the position points to `&`.
 - `MixedContent`
-- `DuplicateAttr` – attributes with the same local name.
-- `ChildPrefixMismatch` – children with the same local name but different prefixes
-  (path of the parent, position of the offending child).
+- `DuplicateAttr` – the path of the element, the position and the name (as written) of the second attribute.
 - `MaxDepthExceeded` – path of the deepest allowed element, position of the offending child.
+- `InvalidNamespaceHandle` – a namespace handle which does not belong to the document.
 - `Missing` – a required attribute or child (`attr`, `child`) is missing.
 - `WrongCount` – `child` or `child_opt` found more than one child.
 - `AlreadyUsed`
-- `InvalidValue` – a value parser failed; contains the attribute name (or text), the input, and the message.
-  An input longer than `MAX_VALUE_CHARS` characters is cut and ends with `…`.
+- `InvalidValue` – a value parser failed; contains the attribute (or text) and the message.
 - `Unused` – reported by `check_all_used`.
 
-`Error::position()` (and `ErrorKind::position()`) returns the position of any error.
+`Error::position()` (and `ErrorKind::position()`) returns `Option<Position>`; it is `None` only
+for `LimitExceeded` from `Document::namespace`.
 `Error::path()` (and `ErrorKind::path()`) returns the path of the related element,
-or `None` for `Xml`, `Encoding`, and `UnexpectedNode`.
+or `None` for `Xml`, `Namespace`, `Encoding`, `UnexpectedNode`, `LimitExceeded`, and `UnknownEntity`.
 
 `AlreadyUsed`, `Missing`, `InvalidValue`, and `Unused` contain an `Item`:
-`Item::Attr(name)`, `Item::Child(name)`, or `Item::Text`.
+`Item::Attr(QualifiedName)`, `Item::Child(QualifiedName)`, or `Item::Text`.
+`QualifiedName` contains the namespace name and the local name and is displayed as `local`
+for no namespace and as `{namespace}local` otherwise.

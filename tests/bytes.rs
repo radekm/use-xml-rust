@@ -1,4 +1,6 @@
-use use_xml::{ErrorKind, Position, parse, parse_bytes, parse_str};
+use use_xml::{ErrorKind, NamespaceHandle, Position, parse, parse_bytes, parse_str};
+
+const NO: NamespaceHandle = NamespaceHandle::NO_NAMESPACE;
 
 fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
@@ -6,8 +8,9 @@ fn pos(line: u32, column: u32) -> Position {
 
 #[test]
 fn utf8_bytes() -> anyhow::Result<()> {
-    let e = parse_bytes("<a x=\"č\">ř</a>".as_bytes())?;
-    assert_eq!(e.attr("x", parse::string)?, "č");
+    let doc = parse_bytes("<a x=\"č\">ř</a>".as_bytes())?;
+    let e = doc.root();
+    assert_eq!(e.attr(NO, "x", parse::string)?, "č");
     assert_eq!(e.text(parse::string)?, "ř");
     e.check_all_used()?;
     Ok(())
@@ -23,11 +26,13 @@ fn utf8_declaration_is_accepted() -> anyhow::Result<()> {
 
 #[test]
 fn utf8_bom_is_skipped() -> anyhow::Result<()> {
-    let e = parse_bytes(b"\xEF\xBB\xBF<a>\n<b/></a>")?;
+    let doc = parse_bytes(b"\xEF\xBB\xBF<a>\n<b/></a>")?;
+    let e = doc.root();
     assert_eq!(e.position(), pos(1, 1));
-    assert_eq!(e.child("b")?.position(), pos(2, 1));
-    let e = parse_str("\u{FEFF}<a/>")?;
-    assert_eq!(e.name(), "a");
+    assert_eq!(e.child(NO, "b")?.position(), pos(2, 1));
+    let doc = parse_str("\u{FEFF}<a/>")?;
+    let e = doc.root();
+    assert_eq!(e.local_name(), "a");
     Ok(())
 }
 
@@ -37,7 +42,7 @@ fn other_declared_encoding_is_rejected() {
         parse_bytes(b"<?xml version=\"1.0\" encoding=\"windows-1250\"?><a/>").unwrap_err(),
         ErrorKind::Encoding {
             message: "encoding `windows-1250` is not supported".to_owned(),
-            position: pos(1, 1)
+            position: pos(1, 31)
         }
     );
 }
@@ -107,7 +112,8 @@ fn declared_encoding_is_checked_after_bom() {
         parse_bytes(b"\xEF\xBB\xBF<?xml version='1.0' encoding='ISO-8859-2'?><a/>").unwrap_err(),
         ErrorKind::Encoding {
             message: "encoding `ISO-8859-2` is not supported".to_owned(),
-            position: pos(1, 1)
+            // Points to the value; the byte order mark is not counted.
+            position: pos(1, 31)
         }
     );
 }
@@ -139,16 +145,16 @@ fn syntax_errors_in_declaration_have_exact_positions() {
     assert_eq!(
         parse_bytes(b"<?xml version='1.0' encoding=utf-8?><a/>").unwrap_err(),
         ErrorKind::Xml {
-            message: "attribute value must be enclosed in `\"` or `'`".to_owned(),
+            message: "expected quoted value in XML declaration".to_owned(),
             position: pos(1, 30)
         }
     );
-    // The closing quote is expected at the end of the declaration, before `?>`.
+    // Points to the opening quote.
     assert_eq!(
         parse_bytes(b"\xEF\xBB\xBF<?xml version='1.0' encoding='utf-8?><a/>").unwrap_err(),
         ErrorKind::Xml {
-            message: "missing closing quote `'` in attribute value".to_owned(),
-            position: pos(1, 36)
+            message: "value in XML declaration not closed".to_owned(),
+            position: pos(1, 30)
         }
     );
 }
