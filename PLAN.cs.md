@@ -73,6 +73,9 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
     pro cíle processing instructions a pro jména entit. `MAX_ATTRS` započítává i deklarace namespaců.
 13. Chyby namespace-well-formedness se hlásí jako `ErrorKind::Namespace`.
     `UnknownEntity` nemá cestu (může být v počátečním tagu elementu, který ještě neexistuje).
+14. Vyžádaná jména se kontrolují jako jména v dokumentu: neplatné lokální jméno je
+    `InvalidName`, neplatné jméno namespacu v `Document::namespace` je `InvalidNamespace`
+    (nebo `LimitExceeded`, pokud je příliš dlouhé). Nekontroluje se, že jména namespaců jsou URI.
 
 ## Otevřené otázky
 

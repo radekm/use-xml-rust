@@ -4,7 +4,8 @@ use std::fmt;
 
 use crate::document::{Document, Node, intern_limit};
 use crate::error::{Error, ErrorKind, Item, Position, truncate_value};
-use crate::names::{NamespaceHandle, QualifiedName, QualifiedNameHandle};
+use crate::names::{MAX_NAME_LEN, NamespaceHandle, QualifiedName, QualifiedNameHandle};
+use crate::parser::is_ncname;
 
 /// An element of a [`Document`].
 ///
@@ -149,12 +150,37 @@ impl<'doc> Elem<'doc> {
         }
     }
 
-    /// Finds the qualified name or interns it (for recording a missing name).
-    fn name_handle(self, ns: NamespaceHandle, local: &str) -> Result<QualifiedNameHandle, Error> {
+    /// Checks the requested name and finds it or interns it (for recording a missing name).
+    fn name_handle(
+        self,
+        ns: NamespaceHandle,
+        local: &str,
+        item: fn(QualifiedName) -> Item,
+    ) -> Result<QualifiedNameHandle, Error> {
         if !self.doc.names.is_valid_namespace(ns) {
             return Err(ErrorKind::InvalidNamespaceHandle {
                 path: self.path(),
                 position: self.position(),
+            }
+            .into());
+        }
+        let message = if local.len() > MAX_NAME_LEN {
+            Some(format!("local name longer than {MAX_NAME_LEN} bytes"))
+        } else if !is_ncname(local) {
+            Some("local name is not an NCName (a name without a colon)".to_owned())
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            let name = QualifiedName {
+                namespace: self.doc.names.namespace_uri(ns),
+                local_name: truncate_value(local).into_owned(),
+            };
+            return Err(ErrorKind::InvalidName {
+                path: self.path(),
+                position: self.position(),
+                item: item(name),
+                message,
             }
             .into());
         }
@@ -195,6 +221,8 @@ impl<'doc> Elem<'doc> {
     /// - [`ErrorKind::AlreadyUsed`] if the attribute was already requested.
     /// - [`ErrorKind::InvalidValue`] if `parser` fails.
     /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is from another document.
+    /// - [`ErrorKind::InvalidName`] if `local_name` is not an `NCName`
+    ///   or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
     pub fn attr_opt<T, E: fmt::Display>(
         self,
         ns: NamespaceHandle,
@@ -203,7 +231,7 @@ impl<'doc> Elem<'doc> {
     ) -> Result<Option<T>, Error> {
         let item = || Item::Attr(self.qualified_name(ns, local_name));
         let node = self.node();
-        let name = self.name_handle(ns, local_name)?;
+        let name = self.name_handle(ns, local_name, Item::Attr)?;
         if node.all_used.get() {
             return Err(self.error_already_used(item()));
         }
@@ -295,7 +323,7 @@ impl<'doc> Elem<'doc> {
         f: impl FnOnce(&[u32]) -> R,
     ) -> Result<R, Error> {
         let node = self.node();
-        let name = self.name_handle(ns, local_name)?;
+        let name = self.name_handle(ns, local_name, Item::Child)?;
         let already_used =
             || self.error_already_used(Item::Child(self.qualified_name(ns, local_name)));
         if node.all_used.get() {
@@ -343,6 +371,8 @@ impl<'doc> Elem<'doc> {
     ///
     /// - [`ErrorKind::AlreadyUsed`] if children with this name were already requested.
     /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is from another document.
+    /// - [`ErrorKind::InvalidName`] if `local_name` is not an `NCName`
+    ///   or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
     pub fn children(self, ns: NamespaceHandle, local_name: &str) -> Result<Vec<Elem<'doc>>, Error> {
         self.use_children(ns, local_name, |indices| {
             indices.iter().map(|&i| Elem::new(self.doc, i)).collect()

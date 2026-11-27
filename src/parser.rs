@@ -65,7 +65,7 @@ impl<'a> PositionTracker<'a> {
 }
 
 /// The `Char` production of XML 1.0.
-fn is_xml_char(c: char) -> bool {
+pub(crate) fn is_xml_char(c: char) -> bool {
     matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
 }
 
@@ -83,6 +83,12 @@ fn is_name_start_char(c: char) -> bool {
 fn is_name_char(c: char) -> bool {
     is_name_start_char(c)
         || matches!(c, '-' | '.' | '0'..='9' | '\u{B7}' | '\u{300}'..='\u{36F}' | '\u{203F}'..='\u{2040}')
+}
+
+/// Whether `s` matches the `NCName` production of Namespaces in XML 1.0.
+pub(crate) fn is_ncname(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(is_name_start_char) && chars.all(is_name_char)
 }
 
 fn is_whitespace_byte(b: u8) -> bool {

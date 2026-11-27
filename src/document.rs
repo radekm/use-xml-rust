@@ -5,8 +5,12 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::elem::Elem;
+use crate::error::truncate_value;
 use crate::error::{Error, ErrorKind, Limit, Position};
-use crate::names::{InternError, NameTable, NamespaceHandle, QualifiedNameHandle};
+use crate::names::{
+    InternError, MAX_NAMESPACE_LEN, NameTable, NamespaceHandle, QualifiedNameHandle,
+    XMLNS_NAMESPACE,
+};
 use crate::parser;
 
 /// Maximum nesting depth of elements. The root element has depth 1.
@@ -101,12 +105,49 @@ impl Document {
     ///
     /// A namespace which does not occur in the document is interned too,
     /// so the handle can be used to request (missing) attributes and children.
+    /// The namespace name is checked like a namespace name in the document,
+    /// but it is not checked to be a URI.
+    ///
+    /// ```
+    /// let doc = use_xml::parse_str("<a xmlns='urn:a'/>")?;
+    /// assert_eq!(doc.root().namespace(), doc.namespace("urn:a")?);
+    /// assert!(doc.namespace("urn:\u{0}").is_err());
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::LimitExceeded`] with [`Limit::Namespaces`] if the document would have
-    /// more than [`MAX_NAMESPACES`](crate::MAX_NAMESPACES) namespaces.
+    /// - [`ErrorKind::LimitExceeded`] with [`Limit::Namespaces`] if the document would have
+    ///   more than [`MAX_NAMESPACES`](crate::MAX_NAMESPACES) namespaces,
+    ///   or with [`Limit::NamespaceLen`] if `uri` is longer than [`MAX_NAMESPACE_LEN`] bytes.
+    /// - [`ErrorKind::InvalidNamespace`] if `uri` contains a character which is not allowed
+    ///   in XML or if it is `http://www.w3.org/2000/xmlns/`, which must not be declared.
     pub fn namespace(&self, uri: &str) -> Result<NamespaceHandle, Error> {
+        if uri.len() > MAX_NAMESPACE_LEN {
+            return Err(ErrorKind::LimitExceeded {
+                limit: Limit::NamespaceLen,
+                position: None,
+            }
+            .into());
+        }
+        let invalid = |message: String| -> Error {
+            ErrorKind::InvalidNamespace {
+                namespace: truncate_value(uri).into_owned(),
+                message,
+            }
+            .into()
+        };
+        if let Some(c) = uri.chars().find(|&c| !parser::is_xml_char(c)) {
+            return Err(invalid(format!(
+                "forbidden character U+{:04X}",
+                u32::from(c)
+            )));
+        }
+        if uri == XMLNS_NAMESPACE {
+            return Err(invalid(format!(
+                "namespace `{XMLNS_NAMESPACE}` must not be declared"
+            )));
+        }
         self.names.namespace(uri).map_err(|e| {
             ErrorKind::LimitExceeded {
                 limit: intern_limit(e),

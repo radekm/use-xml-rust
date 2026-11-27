@@ -96,6 +96,19 @@ jsou ve druhé úrovni v `RefCell`; jejich handly pokračují za handly parseru.
 je chyba `InvalidNamespaceHandle`; handle jiného dokumentu, který náhodou do rozsahu padne,
 odhalit nelze.
 
+Vyžádaná jména se kontrolují stejně jako jména v dokumentu, takže požadavek, který nikdy nemůže
+nic najít, je chyba místo tiše chybějící položky:
+
+- `Document::namespace` selže s `LimitExceeded` (`Limit::NamespaceLen`, bez pozice)
+  pro jméno namespacu delší než `MAX_NAMESPACE_LEN` a s `InvalidNamespace`
+  pro jméno namespacu se znakem, který neodpovídá `Char`,
+  nebo pro `http://www.w3.org/2000/xmlns/` (ten se nesmí deklarovat). Prázdný namespace
+  a namespace `xml` jsou platné. Nekontroluje se, že jméno namespacu je URI
+  (parser to nekontroluje také).
+- `attr`, `attr_opt`, `child`, `child_opt` a `children` selžou s `InvalidName`,
+  pokud lokální jméno není `NCName` (např. je prázdné nebo obsahuje dvojtečku)
+  nebo je delší než `MAX_NAME_LEN`. Neplatná jména se neinternují ani neoznačí jako použitá.
+
 ### Cesty
 
 Cesta elementu se formátuje jako XPath ze jmen tak, jak jsou zapsaná v dokumentu
@@ -131,7 +144,8 @@ Při překročení limitu parsování skončí chybou `LimitExceeded`:
 - `MAX_PREFIX_LEN = 64` bajtů prefixu namespacu (i v `xmlns:prefix`).
 - `MAX_NAMESPACE_LEN = 4096` bajtů jména namespacu (po dekódování referencí).
 - `MAX_NAMESPACES = 256` různých namespaců v dokumentu (včetně prázdného a namespacu `xml`).
-  `Document::namespace` selže se stejnou chybou (bez pozice).
+  `Document::namespace` selže se stejnou chybou (bez pozice), a také pro jméno namespacu
+  delší než `MAX_NAMESPACE_LEN`.
 - `u32::MAX` kvalifikovaných jmen.
 - `MAX_ATTRS = 1000` atributů jednoho elementu včetně deklarací namespaců.
 - `MAX_CHILD_NAMES = 1000` různých kvalifikovaných jmen dětí jednoho elementu.
@@ -306,6 +320,8 @@ a `Error` lze přímo porovnávat s `ErrorKind`. Varianty `ErrorKind`:
 - `DuplicateAttr` – cesta elementu, pozice a jméno (jak je zapsané) druhého atributu.
 - `MaxDepthExceeded` – cesta nejhlubšího povoleného elementu, pozice dítěte, které limit porušilo.
 - `InvalidNamespaceHandle` – handle namespacu, který nepatří k dokumentu.
+- `InvalidNamespace` – `Document::namespace` dostal jméno namespacu, které se v dokumentu nemůže vyskytnout.
+- `InvalidName` – `attr`, `child`, … dostaly lokální jméno, které není `NCName` nebo je příliš dlouhé.
 - `Missing` – chybí povinný atribut nebo dítě (`attr`, `child`).
 - `WrongCount` – `child` nebo `child_opt` našly víc než jedno dítě.
 - `AlreadyUsed`
@@ -313,11 +329,12 @@ a `Error` lze přímo porovnávat s `ErrorKind`. Varianty `ErrorKind`:
 - `Unused` – hlásí `check_all_used`.
 
 `Error::position()` (a `ErrorKind::position()`) vrací `Option<Position>`; `None` je jen
-u `LimitExceeded` z `Document::namespace`.
+u `LimitExceeded` z `Document::namespace` a u `InvalidNamespace`.
 `Error::path()` (a `ErrorKind::path()`) vrací cestu souvisejícího elementu,
-nebo `None` pro `Xml`, `Namespace`, `Encoding`, `UnexpectedNode`, `LimitExceeded` a `UnknownEntity`.
+nebo `None` pro `Xml`, `Namespace`, `Encoding`, `UnexpectedNode`, `LimitExceeded`, `UnknownEntity`
+a `InvalidNamespace`.
 
-`AlreadyUsed`, `Missing`, `InvalidValue` a `Unused` obsahují `Item`:
+`AlreadyUsed`, `Missing`, `InvalidValue`, `Unused` a `InvalidName` obsahují `Item`:
 `Item::Attr(QualifiedName)`, `Item::Child(QualifiedName)` nebo `Item::Text`.
 `QualifiedName` obsahuje jméno namespacu a lokální jméno a zobrazuje se jako `local`
 pro žádný namespace a jako `{namespace}local` jinak.

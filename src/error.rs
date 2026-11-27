@@ -270,6 +270,30 @@ pub enum ErrorKind {
         position: Position,
     },
 
+    /// [`Document::namespace`](crate::Document::namespace) received a namespace name
+    /// which cannot occur in a document.
+    #[error("invalid namespace `{namespace}`: {message}")]
+    InvalidNamespace {
+        /// The namespace name, cut to [`MAX_VALUE_CHARS`] characters.
+        namespace: String,
+        /// Description of the problem.
+        message: String,
+    },
+
+    /// An attribute or children were requested by a local name
+    /// which is not an `NCName` or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
+    #[error("invalid {item} requested from element {path} at {position}: {message}")]
+    InvalidName {
+        /// Path of the element.
+        path: String,
+        /// Position of the element.
+        position: Position,
+        /// The requested item; its local name is cut to [`MAX_VALUE_CHARS`] characters.
+        item: Item,
+        /// Description of the problem.
+        message: String,
+    },
+
     /// A required attribute or child is missing.
     #[error("element {path} at {position} has no {item}")]
     Missing {
@@ -365,10 +389,12 @@ impl ErrorKind {
     /// of the element given by [`path`](Self::path).
     ///
     /// Returns `None` only for [`LimitExceeded`](Self::LimitExceeded)
-    /// from [`Document::namespace`](crate::Document::namespace).
+    /// from [`Document::namespace`](crate::Document::namespace)
+    /// and for [`InvalidNamespace`](Self::InvalidNamespace).
     pub fn position(&self) -> Option<Position> {
         match self {
             Self::LimitExceeded { position, .. } => *position,
+            Self::InvalidNamespace { .. } => None,
             Self::Xml { position, .. }
             | Self::Namespace { position, .. }
             | Self::Encoding { position, .. }
@@ -378,6 +404,7 @@ impl ErrorKind {
             | Self::DuplicateAttr { position, .. }
             | Self::MaxDepthExceeded { position, .. }
             | Self::InvalidNamespaceHandle { position, .. }
+            | Self::InvalidName { position, .. }
             | Self::Missing { position, .. }
             | Self::WrongCount { position, .. }
             | Self::AlreadyUsed { position, .. }
@@ -390,8 +417,8 @@ impl ErrorKind {
     ///
     /// Returns `None` for [`Xml`](Self::Xml), [`Namespace`](Self::Namespace),
     /// [`Encoding`](Self::Encoding), [`UnexpectedNode`](Self::UnexpectedNode),
-    /// [`LimitExceeded`](Self::LimitExceeded), and [`UnknownEntity`](Self::UnknownEntity),
-    /// which are detected before the related element is complete.
+    /// [`LimitExceeded`](Self::LimitExceeded), [`UnknownEntity`](Self::UnknownEntity),
+    /// and [`InvalidNamespace`](Self::InvalidNamespace), which are not related to a complete element.
     pub fn path(&self) -> Option<&str> {
         match self {
             Self::Xml { .. }
@@ -399,11 +426,13 @@ impl ErrorKind {
             | Self::Encoding { .. }
             | Self::UnexpectedNode { .. }
             | Self::LimitExceeded { .. }
-            | Self::UnknownEntity { .. } => None,
+            | Self::UnknownEntity { .. }
+            | Self::InvalidNamespace { .. } => None,
             Self::MixedContent { path, .. }
             | Self::DuplicateAttr { path, .. }
             | Self::MaxDepthExceeded { path, .. }
             | Self::InvalidNamespaceHandle { path, .. }
+            | Self::InvalidName { path, .. }
             | Self::Missing { path, .. }
             | Self::WrongCount { path, .. }
             | Self::AlreadyUsed { path, .. }

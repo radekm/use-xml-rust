@@ -73,6 +73,9 @@ A Rust library for extracting data from XML, modeled on
     to processing instruction targets, and to entity names. `MAX_ATTRS` counts namespace declarations too.
 13. Namespace-well-formedness errors are reported as `ErrorKind::Namespace`.
     `UnknownEntity` has no path (it may be in a start tag whose element does not exist yet).
+14. Requested names are checked like names in the document: an invalid local name is
+    `InvalidName`, an invalid namespace name in `Document::namespace` is `InvalidNamespace`
+    (or `LimitExceeded` if it is too long). Namespace names are not checked to be URIs.
 
 ## Open questions
 

@@ -96,6 +96,19 @@ A `NamespaceHandle` belongs to one document. Using a handle which is out of rang
 of the document is the error `InvalidNamespaceHandle`; a handle of another document
 which happens to be in range cannot be detected.
 
+Requested names are checked like the names in the document, so a request which can never
+match is an error instead of a silently missing item:
+
+- `Document::namespace` fails with `LimitExceeded` (`Limit::NamespaceLen`, without a position)
+  for a namespace name longer than `MAX_NAMESPACE_LEN`, and with `InvalidNamespace`
+  for a namespace name with a character which does not match `Char`
+  or for `http://www.w3.org/2000/xmlns/` (it must not be declared). The empty namespace
+  and the `xml` namespace are valid. Namespace names are not checked to be URIs
+  (the parser does not check it either).
+- `attr`, `attr_opt`, `child`, `child_opt`, and `children` fail with `InvalidName`
+  if the local name is not an `NCName` (e.g. it is empty or contains a colon)
+  or is longer than `MAX_NAME_LEN`. Invalid names are not interned or marked as used.
+
 ### Paths
 
 The path of an element is formatted like XPath from the names as written in the document
@@ -131,7 +144,8 @@ If a limit is exceeded, parsing fails with `LimitExceeded`:
 - `MAX_PREFIX_LEN = 64` bytes of a namespace prefix (also in `xmlns:prefix`).
 - `MAX_NAMESPACE_LEN = 4096` bytes of a namespace name (after decoding references).
 - `MAX_NAMESPACES = 256` different namespaces in a document (including the empty and the `xml` namespace).
-  `Document::namespace` fails with the same error (without a position).
+  `Document::namespace` fails with the same error (without a position), and also for a namespace name
+  longer than `MAX_NAMESPACE_LEN`.
 - `u32::MAX` qualified names.
 - `MAX_ATTRS = 1000` attributes of one element, namespace declarations included.
 - `MAX_CHILD_NAMES = 1000` different qualified names of children of one element.
@@ -306,6 +320,8 @@ and `Error` can be compared with `ErrorKind` directly. Variants of `ErrorKind`:
 - `DuplicateAttr` – the path of the element, the position and the name (as written) of the second attribute.
 - `MaxDepthExceeded` – path of the deepest allowed element, position of the offending child.
 - `InvalidNamespaceHandle` – a namespace handle which does not belong to the document.
+- `InvalidNamespace` – `Document::namespace` received a namespace name which cannot occur in a document.
+- `InvalidName` – `attr`, `child`, … received a local name which is not an `NCName` or is too long.
 - `Missing` – a required attribute or child (`attr`, `child`) is missing.
 - `WrongCount` – `child` or `child_opt` found more than one child.
 - `AlreadyUsed`
@@ -313,11 +329,12 @@ and `Error` can be compared with `ErrorKind` directly. Variants of `ErrorKind`:
 - `Unused` – reported by `check_all_used`.
 
 `Error::position()` (and `ErrorKind::position()`) returns `Option<Position>`; it is `None` only
-for `LimitExceeded` from `Document::namespace`.
+for `LimitExceeded` from `Document::namespace` and for `InvalidNamespace`.
 `Error::path()` (and `ErrorKind::path()`) returns the path of the related element,
-or `None` for `Xml`, `Namespace`, `Encoding`, `UnexpectedNode`, `LimitExceeded`, and `UnknownEntity`.
+or `None` for `Xml`, `Namespace`, `Encoding`, `UnexpectedNode`, `LimitExceeded`, `UnknownEntity`,
+and `InvalidNamespace`.
 
-`AlreadyUsed`, `Missing`, `InvalidValue`, and `Unused` contain an `Item`:
+`AlreadyUsed`, `Missing`, `InvalidValue`, `Unused`, and `InvalidName` contain an `Item`:
 `Item::Attr(QualifiedName)`, `Item::Child(QualifiedName)`, or `Item::Text`.
 `QualifiedName` contains the namespace name and the local name and is displayed as `local`
 for no namespace and as `{namespace}local` otherwise.

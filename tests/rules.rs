@@ -953,3 +953,140 @@ fn prefixes_and_mutations_of_documents_do_not_panic() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Requested names and namespaces.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn requested_local_names_are_checked() -> anyhow::Result<()> {
+    let doc = parse_str("<r x='1'><a/></r>")?;
+    let e = doc.root();
+    let invalid = |item: Item, message: &str| ErrorKind::InvalidName {
+        path: "/r".to_owned(),
+        position: pos(1, 1),
+        item,
+        message: message.to_owned(),
+    };
+    let not_ncname = "local name is not an NCName (a name without a colon)";
+    assert_eq!(
+        e.attr(NO, "p:x", parse::string).unwrap_err(),
+        invalid(Item::attr("", "p:x"), not_ncname)
+    );
+    assert_eq!(
+        e.attr_opt(NO, "", parse::string).unwrap_err(),
+        invalid(Item::attr("", ""), not_ncname)
+    );
+    let p = doc.namespace("urn:p")?;
+    assert_eq!(
+        e.child(p, "1a").unwrap_err(),
+        invalid(Item::child("urn:p", "1a"), not_ncname)
+    );
+    assert_eq!(
+        e.child_opt(NO, "a b").unwrap_err(),
+        invalid(Item::child("", "a b"), not_ncname)
+    );
+    assert_eq!(
+        e.children(NO, ":a").unwrap_err(),
+        invalid(Item::child("", ":a"), not_ncname)
+    );
+    // A name at the limit is valid, a longer one is cut in the error.
+    let max = "a".repeat(MAX_NAME_LEN);
+    assert_eq!(e.attr_opt(NO, &max, parse::string)?, None);
+    assert_eq!(
+        e.children(NO, &format!("{max}a")).unwrap_err(),
+        invalid(
+            Item::child("", &format!("{}…", &max[..100])),
+            "local name longer than 512 bytes"
+        )
+    );
+    // A handle of another document is reported before an invalid name.
+    let other_doc = parse_str("<a/>")?;
+    for i in 0..10 {
+        other_doc.namespace(&format!("urn:{i}"))?;
+    }
+    let other = other_doc.namespace("urn:other")?;
+    assert_eq!(
+        e.attr(other, "", parse::string).unwrap_err(),
+        ErrorKind::InvalidNamespaceHandle {
+            path: "/r".to_owned(),
+            position: pos(1, 1)
+        }
+    );
+    assert_eq!(
+        e.child(NO, "a b").unwrap_err().to_string(),
+        "invalid child `a b` requested from element /r at line 1, column 1: \
+         local name is not an NCName (a name without a colon)"
+    );
+    // Invalid requests do not mark anything as used.
+    assert_eq!(
+        e.check_all_used().unwrap_err(),
+        ErrorKind::Unused {
+            path: "/r".to_owned(),
+            position: pos(1, 1),
+            item: Item::attr("", "x")
+        }
+    );
+    assert_eq!(e.attr(NO, "x", parse::u8)?, 1);
+    e.child(NO, "a")?;
+    doc.check_all_used()?;
+    Ok(())
+}
+
+#[test]
+fn requested_namespaces_are_checked() -> anyhow::Result<()> {
+    let doc = parse_str("<a/>")?;
+    assert_eq!(doc.namespace("")?, NO);
+    assert_eq!(
+        doc.namespace("http://www.w3.org/XML/1998/namespace")?,
+        NamespaceHandle::XML
+    );
+    // Namespace names are not checked to be URIs.
+    doc.namespace("not a URI")?;
+    let max = "u".repeat(MAX_NAMESPACE_LEN);
+    doc.namespace(&max)?;
+    let error = doc.namespace(&format!("{max}u")).unwrap_err();
+    assert_eq!(
+        error,
+        ErrorKind::LimitExceeded {
+            limit: Limit::NamespaceLen,
+            position: None
+        }
+    );
+    let invalid = |namespace: &str, message: &str| ErrorKind::InvalidNamespace {
+        namespace: namespace.to_owned(),
+        message: message.to_owned(),
+    };
+    assert_eq!(
+        doc.namespace("urn:\u{0}").unwrap_err(),
+        invalid("urn:\u{0}", "forbidden character U+0000")
+    );
+    assert_eq!(
+        doc.namespace("urn:\u{FFFE}").unwrap_err(),
+        invalid("urn:\u{FFFE}", "forbidden character U+FFFE")
+    );
+    let error = doc.namespace("http://www.w3.org/2000/xmlns/").unwrap_err();
+    assert_eq!(
+        error,
+        invalid(
+            "http://www.w3.org/2000/xmlns/",
+            "namespace `http://www.w3.org/2000/xmlns/` must not be declared"
+        )
+    );
+    assert_eq!((error.position(), error.path()), (None, None));
+    assert_eq!(
+        error.to_string(),
+        "invalid namespace `http://www.w3.org/2000/xmlns/`: \
+         namespace `http://www.w3.org/2000/xmlns/` must not be declared"
+    );
+    // Long namespace names are cut in the error.
+    let long = format!("{}\u{1}", "u".repeat(200));
+    assert_eq!(
+        doc.namespace(&long).unwrap_err(),
+        invalid(
+            &format!("{}…", "u".repeat(100)),
+            "forbidden character U+0001"
+        )
+    );
+    Ok(())
+}
