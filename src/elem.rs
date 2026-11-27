@@ -220,6 +220,23 @@ impl<'doc> Elem<'doc> {
     /// are in no namespace ([`NamespaceHandle::NO_NAMESPACE`]), even if there is
     /// a default namespace declaration.
     ///
+    /// ```
+    /// use use_xml::{ErrorKind, Item, NamespaceHandle, parse};
+    ///
+    /// let doc = use_xml::parse_str(r#"<person xmlns="urn:p" name="Pete" />"#)?;
+    /// let ns = NamespaceHandle::NO_NAMESPACE;
+    /// let root = doc.root();
+    /// assert_eq!(root.attr_opt(ns, "name", parse::string)?, Some("Pete".to_owned()));
+    /// assert_eq!(root.attr_opt(ns, "age", parse::u32)?, None);
+    /// // The missing attribute was marked as used.
+    /// assert!(matches!(
+    ///     root.attr_opt(ns, "age", parse::u32).unwrap_err().kind(),
+    ///     ErrorKind::AlreadyUsed { item: Item::Attr(_), .. }
+    /// ));
+    /// doc.check_all_used()?;
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// - [`ErrorKind::AlreadyUsed`] if the attribute was already requested.
@@ -227,6 +244,8 @@ impl<'doc> Elem<'doc> {
     /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is from another document.
     /// - [`ErrorKind::InvalidName`] if `local_name` is not an `NCName`
     ///   or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
+    /// - [`ErrorKind::LimitExceeded`] with [`Limit::QualifiedNames`](crate::Limit::QualifiedNames)
+    ///   if the name of a missing attribute cannot be interned.
     pub fn attr_opt<T, E: fmt::Display>(
         self,
         ns: NamespaceHandle,
@@ -298,6 +317,19 @@ impl<'doc> Elem<'doc> {
     /// Returns the text of the element converted by `parser`.
     ///
     /// An element with child elements or without content has the text `""`.
+    /// Line endings are normalized, references are decoded, and CDATA sections
+    /// are joined with the surrounding text.
+    ///
+    /// ```
+    /// use use_xml::{NamespaceHandle, parse};
+    ///
+    /// let doc = use_xml::parse_str("<r><price>12&#46;50</price><note/></r>")?;
+    /// let ns = NamespaceHandle::NO_NAMESPACE;
+    /// let price = doc.root().child(ns, "price")?.text(parse::decimal)?;
+    /// assert_eq!(price.to_string(), "12.50");
+    /// assert_eq!(doc.root().child(ns, "note")?.text(parse::string)?, "");
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -371,12 +403,32 @@ impl<'doc> Elem<'doc> {
     ///
     /// The name is marked as used even if there are no such children.
     ///
+    /// ```
+    /// use use_xml::{NamespaceHandle, parse};
+    ///
+    /// let doc = use_xml::parse_str("<animals><dog>A</dog><cat>B</cat><dog>D</dog></animals>")?;
+    /// let ns = NamespaceHandle::NO_NAMESPACE;
+    /// let dogs = doc
+    ///     .root()
+    ///     .children(ns, "dog")?
+    ///     .into_iter()
+    ///     .map(|dog| dog.text(parse::string))
+    ///     .collect::<Result<Vec<_>, _>>()?;
+    /// assert_eq!(dogs, ["A", "D"]);
+    /// assert!(doc.root().children(ns, "pig")?.is_empty());
+    /// // `cat` was not used.
+    /// assert!(doc.check_all_used().is_err());
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// - [`ErrorKind::AlreadyUsed`] if children with this name were already requested.
     /// - [`ErrorKind::InvalidNamespaceHandle`] if `ns` is from another document.
     /// - [`ErrorKind::InvalidName`] if `local_name` is not an `NCName`
     ///   or is longer than [`MAX_NAME_LEN`](crate::MAX_NAME_LEN).
+    /// - [`ErrorKind::LimitExceeded`] with [`Limit::QualifiedNames`](crate::Limit::QualifiedNames)
+    ///   if the name of missing children cannot be interned.
     pub fn children(self, ns: NamespaceHandle, local_name: &str) -> Result<Vec<Elem<'doc>>, Error> {
         self.use_children(ns, local_name, |indices| {
             indices.iter().map(|&i| Elem::new(self.doc, i)).collect()
@@ -384,6 +436,19 @@ impl<'doc> Elem<'doc> {
     }
 
     /// Returns the child with the given qualified name, or `None` if there is no such child.
+    ///
+    /// ```
+    /// use use_xml::{ErrorKind, NamespaceHandle};
+    ///
+    /// let doc = use_xml::parse_str("<animals><dog/><dog/></animals>")?;
+    /// let ns = NamespaceHandle::NO_NAMESPACE;
+    /// assert!(doc.root().child_opt(ns, "cat")?.is_none());
+    /// assert!(matches!(
+    ///     doc.root().child_opt(ns, "dog").unwrap_err().kind(),
+    ///     ErrorKind::WrongCount { found: 2, .. }
+    /// ));
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -440,6 +505,18 @@ impl<'doc> Elem<'doc> {
     /// Marks the element and all its descendants as used.
     ///
     /// Any later request on the element or its descendants fails with [`ErrorKind::AlreadyUsed`].
+    /// It does not mark the name of the element as used in its parent.
+    ///
+    /// ```
+    /// use use_xml::NamespaceHandle;
+    ///
+    /// let doc = use_xml::parse_str("<r><header v='1'>x</header><body/></r>")?;
+    /// let ns = NamespaceHandle::NO_NAMESPACE;
+    /// doc.root().child(ns, "header")?.ignore_all();
+    /// doc.root().child(ns, "body")?;
+    /// doc.check_all_used()?;
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
     pub fn ignore_all(self) {
         let mut stack = vec![self.index];
         while let Some(index) = stack.pop() {
