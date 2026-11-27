@@ -80,6 +80,10 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
     ne na element.
 16. `Document::namespace_uri`, `Item::attr`, `Item::child`, `parse::map` a `parse::validate`
     byly odstraněny: parser hodnot je libovolné `FnOnce(String)`, takže se parsery kombinují closurami.
+17. `children` mapuje jméno na `Vec<u32>`; použití jména ho nahradí prázdným `Vec`
+    (dříve `(bool, Vec<u32>)`). Podstromy se procházejí pomocí `Node::subtree_end` (uzly jsou v preorderu),
+    takže `check_all_used` kontroluje elementy v pořadí dokumentu; která nepoužitá položka se nahlásí
+    první, není součástí kontraktu. Šetří to 5–10 % paměti bez měřitelné změny rychlosti.
 
 ## Otevřené otázky
 

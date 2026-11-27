@@ -27,6 +27,7 @@ struct Node {
     raw_name: u32,                 // Name as written (with the prefix), used in paths.
     parent: Option<u32>,           // Index of the parent node.
     index: u32,                    // 0-based index among siblings with the same qualified name.
+    subtree_end: u32,              // Index of the last descendant; the node itself if it has none.
     position: Position,            // Line and column of the start tag.
     text_significant: bool,
     all_used: Cell<bool>,          // `ignore_all` was called.
@@ -34,8 +35,8 @@ struct Node {
     text: Cell<Option<Box<str>>>,
     // `None` after the attribute was used or for a requested missing attribute.
     attrs: RefCell<BTreeMap<QualifiedNameHandle, Option<Box<str>>>>,
-    // The flag says whether the name was used. Requested missing names have an empty `Vec`.
-    children: RefCell<BTreeMap<QualifiedNameHandle, (bool, Vec<u32>)>>,
+    // Children with each name in document order. An empty `Vec` means that the name was used.
+    children: RefCell<BTreeMap<QualifiedNameHandle, Vec<u32>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -53,14 +54,18 @@ pub struct Position {
 `Elem<'doc>` is a small `Copy` handle. It borrows the document, so the document outlives
 all its elements (an `Elem` which outlives its document does not compile). The parent
 is an index into the arena, so a child can get its parent without reference cycles.
+Nodes are in preorder, so the descendants of a node are exactly the nodes
+after it up to `subtree_end`. The parser sets `subtree_end` when it reaches the end tag.
 
 Attribute values and texts are moved out of the document when they are used, so their usage
 does not need a separate flag: `Some` means unused, `None` means used. Values are stored
-as `Box<str>`, which converts into `String` without copying. Elements are not moved;
-the `bool` flag in `children` says whether a child name was used.
+as `Box<str>`, which converts into `String` without copying. Elements are not moved,
+only their indices: using a child name replaces its `Vec` of indices by an empty one.
+A name with children always has a non-empty `Vec`, so an empty `Vec` means used.
+Traversals of the subtree (`ignore_all`, `check_all_used`) use `subtree_end`, not `children`.
 
 Requests for a missing attribute or child are recorded in the same maps:
-a missing attribute gets `None`, a missing child name gets `(true, Vec::with_capacity(0))`.
+a missing attribute gets `None`, a missing child name gets an empty `Vec`.
 Their qualified names are interned (see below) if they are not interned yet.
 This is expected and not limited: the limits `MAX_ATTRS` and `MAX_CHILD_NAMES` apply only to the document,
 so every request for a different missing name makes the document slightly bigger.
@@ -70,9 +75,10 @@ with interior mutability (`Cell`, `RefCell`), so a user can hold several element
 and still read the parent's attributes. A `RefCell` is never borrowed while user code
 (e.g. a value parser) runs. `Document` is therefore `Send` but not `Sync`, and `Elem` is neither.
 
-`Debug` of `Elem` prints only the element: its path, position, attributes, the number of children
+`Debug` of `Elem` prints only the element: its path, position, attributes, the number of unused children
 for each name, and its text (a used text is shown as `<used>`; a used attribute and a requested
-missing attribute are both stored as `None`, so they are shown as `<used or missing>`). Values longer than
+missing attribute are both stored as `None`, so they are shown as `<used or missing>`;
+a used or missing child name has 0 children). Values longer than
 `MAX_VALUE_CHARS = 100` characters are cut and end with `…`. `Debug` of `Document`
 prints the number of elements and the root.
 
@@ -240,18 +246,20 @@ Rules:
 
 ### `check_all_used`
 
-`elem.check_all_used()` (or `doc.check_all_used()` for the root) walks the subtree depth-first
-and returns an error for the first unused item:
+`elem.check_all_used()` (or `doc.check_all_used()` for the root) walks the element
+and its descendants in document order (the nodes up to `subtree_end`) and returns an error
+for the first unused item. Within an element it checks:
 
-1. an unused attribute,
+1. unused attributes,
 2. unused significant text (whitespace-only text that was never requested is not reported),
-3. an unused child name; the error has the path and the position
-   of the first child with this name, not of the parent,
-4. otherwise, it continues with the children of used names (in document order within a name).
+3. unused child names; the error has the path and the position
+   of the first child with this name, not of the parent.
 
 Attributes and child names are ordered by their qualified name handles, i.e. by the first occurrence
-of the qualified name in the document. Elements marked by `ignore_all` are skipped.
-`check_all_used` and `ignore_all` use no recursion.
+of the qualified name in the document. Which unused item is reported first is not part of the contract.
+Subtrees marked by `ignore_all` are skipped.
+`ignore_all` marks the nodes up to `subtree_end`.
+`check_all_used` and `ignore_all` use no recursion and allocate nothing.
 
 ## API sketch
 

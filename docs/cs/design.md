@@ -27,6 +27,7 @@ struct Node {
     raw_name: u32,                 // Jméno, jak je zapsané (s prefixem), používá se v cestách.
     parent: Option<u32>,           // Index rodičovského uzlu.
     index: u32,                    // Index (od 0) mezi sourozenci se stejným kvalifikovaným jménem.
+    subtree_end: u32,              // Index posledního potomka; uzel sám, pokud nemá potomky.
     position: Position,            // Řádek a sloupec počátečního tagu.
     text_significant: bool,
     all_used: Cell<bool>,          // Bylo zavoláno `ignore_all`.
@@ -34,8 +35,8 @@ struct Node {
     text: Cell<Option<Box<str>>>,
     // `None` po použití atributu nebo pro vyžádaný chybějící atribut.
     attrs: RefCell<BTreeMap<QualifiedNameHandle, Option<Box<str>>>>,
-    // Příznak říká, zda bylo jméno použito. Vyžádaná chybějící jména mají prázdný `Vec`.
-    children: RefCell<BTreeMap<QualifiedNameHandle, (bool, Vec<u32>)>>,
+    // Děti s každým jménem v pořadí dokumentu. Prázdný `Vec` znamená, že jméno bylo použito.
+    children: RefCell<BTreeMap<QualifiedNameHandle, Vec<u32>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -53,14 +54,18 @@ pub struct Position {
 `Elem<'doc>` je malý `Copy` handle. Půjčuje si dokument, takže dokument přežije
 všechny své elementy (`Elem`, který by přežil svůj dokument, se nezkompiluje). Rodič
 je index do arény, takže dítě se k rodiči dostane bez cyklů referencí.
+Uzly jsou v preorderu, takže potomci uzlu jsou přesně uzly
+za ním až po `subtree_end`. Parser nastaví `subtree_end`, když dojde ke koncovému tagu.
 
 Hodnoty atributů a texty se při použití přesunou z dokumentu ven, takže jejich použití
 nepotřebuje zvláštní příznak: `Some` znamená nepoužitý, `None` použitý. Hodnoty jsou uložené
-jako `Box<str>`, který se převede na `String` bez kopírování. Elementy se nepřesouvají;
-příznak `bool` v `children` říká, zda bylo jméno dětí použito.
+jako `Box<str>`, který se převede na `String` bez kopírování. Elementy se nepřesouvají,
+jen jejich indexy: použití jména dětí nahradí jeho `Vec` indexů prázdným.
+Jméno s dětmi má vždy neprázdný `Vec`, takže prázdný `Vec` znamená použité.
+Průchody podstromem (`ignore_all`, `check_all_used`) používají `subtree_end`, ne `children`.
 
 Požadavky na chybějící atribut nebo dítě se zaznamenají do stejných map:
-chybějící atribut dostane `None`, chybějící jméno dětí `(true, Vec::with_capacity(0))`.
+chybějící atribut dostane `None`, chybějící jméno dětí prázdný `Vec`.
 Jejich kvalifikovaná jména se internují (viz níže), pokud ještě internovaná nejsou.
 To je očekávané a neomezené: limity `MAX_ATTRS` a `MAX_CHILD_NAMES` platí jen pro dokument,
 takže každý požadavek na jiné chybějící jméno dokument trochu zvětší.
@@ -70,9 +75,10 @@ pomocí vnitřní měnitelnosti (`Cell`, `RefCell`), takže uživatel může dr�
 a přitom číst atributy rodiče. `RefCell` není nikdy vypůjčená, zatímco běží uživatelský kód
 (např. parser hodnoty). `Document` je proto `Send`, ale ne `Sync`, a `Elem` není ani jedno.
 
-`Debug` pro `Elem` vypíše jen samotný element: cestu, pozici, atributy, počet dětí
+`Debug` pro `Elem` vypíše jen samotný element: cestu, pozici, atributy, počet nepoužitých dětí
 pro každé jméno a text (použitý text se zobrazí jako `<used>`; použitý atribut i vyžádaný
-chybějící atribut jsou oba uložené jako `None`, takže se zobrazí jako `<used or missing>`). Hodnoty delší než
+chybějící atribut jsou oba uložené jako `None`, takže se zobrazí jako `<used or missing>`;
+použité nebo chybějící jméno dětí má 0 dětí). Hodnoty delší než
 `MAX_VALUE_CHARS = 100` znaků se zkrátí a končí `…`. `Debug` pro `Document`
 vypíše počet elementů a kořen.
 
@@ -240,18 +246,20 @@ Pravidla:
 
 ### `check_all_used`
 
-`elem.check_all_used()` (nebo `doc.check_all_used()` pro kořen) projde podstrom do hloubky
-a vrátí chybu pro první nepoužitou položku:
+`elem.check_all_used()` (nebo `doc.check_all_used()` pro kořen) projde element
+a jeho potomky v pořadí dokumentu (uzly až po `subtree_end`) a vrátí chybu
+pro první nepoužitou položku. V rámci elementu kontroluje:
 
-1. nepoužitý atribut,
+1. nepoužité atributy,
 2. nepoužitý významný text (text jen z bílých znaků, který nebyl vyžádán, se nehlásí),
-3. nepoužité jméno dětí; chyba má cestu a pozici
-   prvního dítěte s tímto jménem, ne rodiče,
-4. jinak pokračuje dětmi použitých jmen (v rámci jména v pořadí dokumentu).
+3. nepoužitá jména dětí; chyba má cestu a pozici
+   prvního dítěte s tímto jménem, ne rodiče.
 
 Atributy a jména dětí jsou seřazené podle handlů jejich kvalifikovaných jmen, tj. podle prvního výskytu
-kvalifikovaného jména v dokumentu. Elementy označené `ignore_all` se přeskočí.
-`check_all_used` ani `ignore_all` nepoužívají rekurzi.
+kvalifikovaného jména v dokumentu. Která nepoužitá položka se nahlásí první, není součástí kontraktu.
+Podstromy označené `ignore_all` se přeskočí.
+`ignore_all` označí uzly až po `subtree_end`.
+`check_all_used` ani `ignore_all` nepoužívají rekurzi a nic nealokují.
 
 ## Náčrt API
 

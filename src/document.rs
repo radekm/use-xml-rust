@@ -24,6 +24,8 @@ pub(crate) struct Node {
     pub(crate) parent: Option<u32>,
     /// 0-based index among the siblings with the same qualified name; 0 for the root.
     pub(crate) index: u32,
+    /// Index of the last descendant (nodes are in preorder); the node itself if it has none.
+    pub(crate) subtree_end: u32,
     pub(crate) position: Position,
     pub(crate) text_significant: bool,
     /// `ignore_all` was called on the element or on one of its ancestors.
@@ -32,8 +34,9 @@ pub(crate) struct Node {
     pub(crate) text: Cell<Option<Box<str>>>,
     /// The value is `None` after the attribute was used or if a missing attribute was requested.
     pub(crate) attrs: RefCell<BTreeMap<QualifiedNameHandle, Option<Box<str>>>>,
-    /// The flag says whether the name was used. Requested missing names have an empty `Vec`.
-    pub(crate) children: RefCell<BTreeMap<QualifiedNameHandle, (bool, Vec<u32>)>>,
+    /// Children with each name in document order. An empty `Vec` means that the name was used
+    /// (unused names always have at least one child; requested missing names are inserted empty).
+    pub(crate) children: RefCell<BTreeMap<QualifiedNameHandle, Vec<u32>>>,
 }
 
 /// Formats the path of the node `index`, e.g. `/root/items[0]/item[2]`.

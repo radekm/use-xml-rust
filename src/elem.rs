@@ -31,9 +31,10 @@ pub struct Elem<'doc> {
 
 impl fmt::Debug for Elem<'_> {
     /// Prints only this element, not its descendants: its path, position, attributes,
-    /// the number of children for each name, and its text.
+    /// the number of unused children for each name, and its text.
     /// A used text is shown as `<used>`. A used attribute and a requested missing attribute
     /// are shown as `<used or missing>` because they are stored the same way.
+    /// A used or missing child name has 0 children.
     /// Values longer than [`MAX_VALUE_CHARS`](crate::MAX_VALUE_CHARS) characters are cut and end with `…`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         /// A value which is already formatted.
@@ -68,7 +69,7 @@ impl fmt::Debug for Elem<'_> {
             .children
             .borrow()
             .iter()
-            .map(|(name, (_, elems))| (names.qualified_name(*name).to_string(), elems.len()))
+            .map(|(name, elems)| (names.qualified_name(*name).to_string(), elems.len()))
             .collect();
         let text = node.text.take();
         let text_debug = value(text.as_deref(), "<used>");
@@ -364,15 +365,19 @@ impl<'doc> Elem<'doc> {
         if node.all_used.get() {
             return Err(already_used());
         }
-        let mut children = node.children.borrow_mut();
-        // A missing name is recorded with no children and then marked as used like any other.
-        let (used, elems) = children.entry(name).or_default();
-        if *used {
-            drop(children);
-            return Err(already_used());
-        }
-        *used = true;
-        Ok(f(elems))
+        // The borrow ends with the statement, before `f` runs.
+        let elems = match node.children.borrow_mut().entry(name) {
+            // A missing name is recorded as used (an empty `Vec`).
+            Entry::Vacant(entry) => {
+                entry.insert(Vec::new());
+                Vec::new()
+            }
+            // Unused names always have at least one child, so an empty `Vec` means used.
+            Entry::Occupied(entry) if entry.get().is_empty() => return Err(already_used()),
+            // Using the children replaces them by an empty `Vec`.
+            Entry::Occupied(mut entry) => std::mem::take(entry.get_mut()),
+        };
+        Ok(f(&elems))
     }
 
     fn wrong_count(
@@ -512,12 +517,9 @@ impl<'doc> Elem<'doc> {
     /// # Ok::<(), use_xml::Error>(())
     /// ```
     pub fn ignore_all(self) {
-        let mut stack = vec![self.index];
-        while let Some(index) = stack.pop() {
-            let node = self.doc.node(index);
-            if !node.all_used.replace(true) {
-                stack.extend(node.children.borrow().values().flat_map(|(_, elems)| elems));
-            }
+        // Descendants are the nodes after this one up to `subtree_end` (preorder).
+        for index in self.index..=self.node().subtree_end {
+            self.doc.node(index).all_used.set(true);
         }
     }
 
@@ -525,15 +527,14 @@ impl<'doc> Elem<'doc> {
     ///
     /// Returns [`ErrorKind::Unused`] for the first unused item. For an unused child name
     /// the error contains the path and the position of the first child with this name.
-    /// Within an element the order is:
-    /// attributes, significant text, child names, and then descendants
-    /// of the used child names (in document order within a name).
+    /// Elements are checked in document order. Within an element the order is:
+    /// attributes, significant text, and child names.
     /// Attributes and child names are ordered by the order in which their qualified names
-    /// first occur in the document.
+    /// first occur in the document. Which unused item is reported first is not part of the contract.
     /// Text consisting only of whitespace does not need to be used.
     /// Elements marked by [`Elem::ignore_all`] are skipped.
     ///
-    /// The traversal does not use recursion.
+    /// The traversal does not use recursion and allocates nothing.
     ///
     /// ```
     /// use use_xml::{ErrorKind, Item, NamespaceHandle, QualifiedName};
@@ -554,22 +555,23 @@ impl<'doc> Elem<'doc> {
     ///
     /// - [`ErrorKind::Unused`] for the first unused item.
     pub fn check_all_used(self) -> Result<(), Error> {
-        // Children are pushed in reverse order, so they are popped by name and then in document order.
-        let mut stack = vec![self.index];
-        while let Some(index) = stack.pop() {
+        // Descendants are the nodes after this one up to `subtree_end` (preorder),
+        // so they are checked in document order.
+        let end = self.node().subtree_end;
+        let mut index = self.index;
+        while index <= end {
             let elem = Elem::new(self.doc, index);
             let node = elem.node();
             if node.all_used.get() {
-                continue;
+                // `ignore_all` marked the whole subtree.
+                index = node.subtree_end;
+            } else {
+                elem.check_own_items_used()?;
             }
-            elem.check_own_items_used()?;
-            stack.extend(
-                node.children
-                    .borrow()
-                    .values()
-                    .rev()
-                    .flat_map(|(_, elems)| elems.iter().rev()),
-            );
+            let Some(next) = index.checked_add(1) else {
+                break;
+            };
+            index = next;
         }
         Ok(())
     }
@@ -608,11 +610,9 @@ impl<'doc> Elem<'doc> {
             .children
             .borrow()
             .iter()
-            .find(|(_, (used, _))| !used)
-            .map(|(name, (_, elems))| (*name, elems.first().copied()));
+            .find_map(|(name, elems)| Some((*name, *elems.first()?)));
         if let Some((name, first)) = unused_child {
-            // An unused name always has at least one child (missing names are marked as used).
-            let first = first.map_or(self, |i| Elem::new(self.doc, i));
+            let first = Elem::new(self.doc, first);
             return Err(ErrorKind::Unused {
                 path: first.path(),
                 position: first.position(),

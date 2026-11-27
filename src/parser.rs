@@ -911,7 +911,7 @@ impl<'a> Parser<'a> {
                 if !children.contains_key(&qname) && children.len() >= MAX_CHILD_NAMES {
                     return Err(self.limit_error(tag_start, Limit::ChildNames));
                 }
-                let (_, siblings) = children.entry(qname).or_insert_with(|| (false, Vec::new()));
+                let siblings = children.entry(qname).or_default();
                 siblings.push(node_index);
                 // `siblings` is not empty (the node was just pushed), so `len() - 1` does not underflow.
                 // The number of siblings is at most the number of nodes, which fits into `u32`.
@@ -926,6 +926,7 @@ impl<'a> Parser<'a> {
             raw_name,
             parent,
             index,
+            subtree_end: node_index,
             position,
             text_significant: false,
             all_used: Cell::new(false),
@@ -997,7 +998,11 @@ impl<'a> Parser<'a> {
             ));
         }
         self.restore_bindings(top.undo_len);
+        // The last node is a descendant of `top` or `top` itself, so its index was checked
+        // to fit into `u32` when it was created.
+        let last = u32::try_from(self.nodes.len() - 1).unwrap_or(u32::MAX);
         let node = &mut self.nodes[top.node as usize];
+        node.subtree_end = last;
         node.text_significant = top.significant_at.is_some();
         if !top.has_children {
             *node.text.get_mut() = Some(top.text.into_boxed_str());
