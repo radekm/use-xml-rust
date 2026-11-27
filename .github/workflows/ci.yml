@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       # Installs the toolchain pinned in `rust-toolchain.toml` (with rustfmt and clippy).
       - name: Install toolchain
-        run: rustup show active-toolchain || rustup toolchain install
+        run: rustup toolchain install
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
