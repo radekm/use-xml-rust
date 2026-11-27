@@ -101,10 +101,6 @@ fn is_whitespace(s: &str) -> bool {
 
 /// Appends `src` to `dst` and normalizes line endings (`\r\n` and `\r` become `\n`).
 fn push_normalized(dst: &mut String, src: &str) {
-    if !src.contains('\r') {
-        dst.push_str(src);
-        return;
-    }
     let mut rest = src;
     while let Some(i) = rest.find('\r') {
         dst.push_str(&rest[..i]);
@@ -127,6 +123,8 @@ struct RawAttr<'a> {
     name: RawName<'a>,
     value: Cow<'a, str>,
     offset: usize,
+    /// Namespace of the attribute, resolved after the namespace declarations of its element.
+    ns: NamespaceHandle,
 }
 
 /// An element whose end tag was not reached yet.
@@ -745,16 +743,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn lookup_prefix(&self, prefix: &str) -> Option<NamespaceHandle> {
-        self.bindings.get(prefix).copied()
-    }
-
     /// Restores the bindings replaced by the declarations recorded after `undo_len`.
     fn restore_bindings(&mut self, undo_len: usize) {
-        while self.undo.len() > undo_len {
-            let Some((prefix, previous)) = self.undo.pop() else {
-                break;
-            };
+        for (prefix, previous) in self.undo.drain(undo_len..).rev() {
             match previous {
                 Some(ns) => self.bindings.insert(prefix, ns),
                 None => self.bindings.remove(prefix),
@@ -769,9 +760,7 @@ impl<'a> Parser<'a> {
         uri: &str,
         offset: usize,
     ) -> Result<(), Error> {
-        if prefix.len() > MAX_PREFIX_LEN {
-            return Err(self.limit_error(offset, Limit::PrefixLen));
-        }
+        // The length of `prefix` was checked by `qname`.
         if uri.len() > MAX_NAMESPACE_LEN {
             return Err(self.limit_error(offset, Limit::NamespaceLen));
         }
@@ -858,6 +847,7 @@ impl<'a> Parser<'a> {
                 name: attr_name,
                 value,
                 offset,
+                ns: NamespaceHandle::NO_NAMESPACE,
             });
         };
 
@@ -878,20 +868,26 @@ impl<'a> Parser<'a> {
                 "prefix `xmlns` must not be used for elements",
             ));
         }
-        let ns = match self.lookup_prefix(name.prefix) {
-            Some(ns) => ns,
+        let ns = match self.bindings.get(name.prefix) {
+            Some(&ns) => ns,
             None if name.prefix.is_empty() => NamespaceHandle::NO_NAMESPACE,
             None => {
                 let message = format!("undeclared prefix `{}`", name.prefix);
                 return Err(self.namespace_error(tag_start + 1, message));
             }
         };
-        // Undeclared prefixes of attributes are reported before duplicate attributes.
-        for attr in &raw_attrs {
+        // Namespaces of attributes. Undeclared prefixes are reported before duplicate attributes.
+        for attr in &mut raw_attrs {
             let prefix = attr.name.prefix;
-            if !prefix.is_empty() && prefix != "xmlns" && self.lookup_prefix(prefix).is_none() {
-                let message = format!("undeclared prefix `{prefix}`");
-                return Err(self.namespace_error(attr.offset, message));
+            if prefix.is_empty() || prefix == "xmlns" {
+                continue;
+            }
+            match self.bindings.get(prefix) {
+                Some(&ns) => attr.ns = ns,
+                None => {
+                    let message = format!("undeclared prefix `{prefix}`");
+                    return Err(self.namespace_error(attr.offset, message));
+                }
             }
         }
         let qname = self
@@ -944,18 +940,9 @@ impl<'a> Parser<'a> {
             let duplicate = if attr.name.raw == "xmlns" || attr.name.prefix == "xmlns" {
                 !declared.insert(attr.name.raw)
             } else {
-                let ns = if attr.name.prefix.is_empty() {
-                    NamespaceHandle::NO_NAMESPACE
-                } else if let Some(ns) = self.lookup_prefix(attr.name.prefix) {
-                    ns
-                } else {
-                    // Unreachable: undeclared prefixes were reported above.
-                    let message = format!("undeclared prefix `{}`", attr.name.prefix);
-                    return Err(self.namespace_error(attr.offset, message));
-                };
                 let qname = self
                     .interner
-                    .name(ns, attr.name.local)
+                    .name(attr.ns, attr.name.local)
                     .map_err(|limit| self.limit_error(attr.offset, limit))?;
                 attrs
                     .insert(qname, Some(attr.value.into_owned().into_boxed_str()))
