@@ -62,6 +62,8 @@ the `bool` flag in `children` says whether a child name was used.
 Requests for a missing attribute or child are recorded in the same maps:
 a missing attribute gets `None`, a missing child name gets `(true, Vec::with_capacity(0))`.
 Their qualified names are interned (see below) if they are not interned yet.
+This is expected and not limited: the limits `MAX_ATTRS` and `MAX_CHILD_NAMES` apply only to the document,
+so every request for a different missing name makes the document slightly bigger.
 
 All API methods take `self` (`Elem` is `Copy`) or `&self` (`Document`). Usage is tracked
 with interior mutability (`Cell`, `RefCell`), so a user can hold several elements
@@ -253,7 +255,7 @@ let doc = use_xml::parse_bytes(bytes)?;        // Result<Document, Error>, UTF-8
 
 let ns = doc.namespace("urn:x")?;              // NamespaceHandle; interned if missing
 let no = doc.namespace("")?;                   // = NamespaceHandle::NO_NAMESPACE
-doc.namespace_uri(ns);                         // Option<String>
+doc.namespace_uri(ns);                         // Option<Cow<str>>, borrowed for namespaces from the document
 let root = doc.root();                         // Elem<'_>
 
 root.local_name();                             // &str

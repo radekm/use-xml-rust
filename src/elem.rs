@@ -17,6 +17,10 @@ use crate::parser::is_ncname;
 /// A second request fails with [`ErrorKind::AlreadyUsed`].
 /// At the end [`Elem::check_all_used`] (or [`Document::check_all_used`])
 /// reports the first item which was not requested.
+///
+/// Requests for missing attributes and children are recorded too, so their names
+/// are interned in the document. This is not limited by [`MAX_ATTRS`](crate::MAX_ATTRS)
+/// or [`MAX_CHILD_NAMES`](crate::MAX_CHILD_NAMES), which apply only to the parsed document.
 #[derive(Clone, Copy)]
 pub struct Elem<'doc> {
     doc: &'doc Document,

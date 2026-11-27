@@ -62,6 +62,8 @@ příznak `bool` v `children` říká, zda bylo jméno dětí použito.
 Požadavky na chybějící atribut nebo dítě se zaznamenají do stejných map:
 chybějící atribut dostane `None`, chybějící jméno dětí `(true, Vec::with_capacity(0))`.
 Jejich kvalifikovaná jména se internují (viz níže), pokud ještě internovaná nejsou.
+To je očekávané a neomezené: limity `MAX_ATTRS` a `MAX_CHILD_NAMES` platí jen pro dokument,
+takže každý požadavek na jiné chybějící jméno dokument trochu zvětší.
 
 Všechny metody API berou `self` (`Elem` je `Copy`) nebo `&self` (`Document`). Použití se sleduje
 pomocí vnitřní měnitelnosti (`Cell`, `RefCell`), takže uživatel může držet několik elementů
@@ -253,7 +255,7 @@ let doc = use_xml::parse_bytes(bytes)?;        // Result<Document, Error>, jen U
 
 let ns = doc.namespace("urn:x")?;              // NamespaceHandle; internuje se, pokud chybí
 let no = doc.namespace("")?;                   // = NamespaceHandle::NO_NAMESPACE
-doc.namespace_uri(ns);                         // Option<String>
+doc.namespace_uri(ns);                         // Option<Cow<str>>, pro namespacy z dokumentu vypůjčené
 let root = doc.root();                         // Elem<'_>
 
 root.local_name();                             // &str

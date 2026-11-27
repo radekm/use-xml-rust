@@ -1,5 +1,6 @@
 //! The parsed document: an arena of element nodes and the interned names.
 
+use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -159,10 +160,24 @@ impl Document {
 
     /// Returns the namespace name (URI) of the handle, or `None` if the handle
     /// does not belong to this document.
-    pub fn namespace_uri(&self, ns: NamespaceHandle) -> Option<String> {
+    ///
+    /// Namespaces which occur in the document are borrowed. Namespaces interned later
+    /// by [`Document::namespace`] are returned as copies.
+    ///
+    /// ```
+    /// use std::borrow::Cow;
+    ///
+    /// let doc = use_xml::parse_str("<a xmlns='urn:a'/>")?;
+    /// let a = doc.root().namespace();
+    /// assert!(matches!(doc.namespace_uri(a), Some(Cow::Borrowed("urn:a"))));
+    /// let b = doc.namespace("urn:b")?;
+    /// assert_eq!(doc.namespace_uri(b).as_deref(), Some("urn:b"));
+    /// # Ok::<(), use_xml::Error>(())
+    /// ```
+    pub fn namespace_uri(&self, ns: NamespaceHandle) -> Option<Cow<'_, str>> {
         self.names
             .is_valid_namespace(ns)
-            .then(|| self.names.namespace_uri(ns))
+            .then(|| self.names.namespace_uri_cow(ns))
     }
 
     /// Checks that everything in the document was used. See [`Elem::check_all_used`].
