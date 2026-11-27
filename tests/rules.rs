@@ -340,6 +340,14 @@ fn qualified_names_are_checked() {
             "<?a:b?><a/>",
             namespace("colon in processing instruction target", pos(1, 3)),
         ),
+        (
+            "<a>\n&a:b;</a>",
+            namespace("colon in entity name", pos(2, 1)),
+        ),
+        (
+            "<a x='č&a:b;'/>",
+            namespace("colon in entity name", pos(1, 8)),
+        ),
     ]);
 }
 
@@ -510,11 +518,26 @@ fn name_length_is_limited_in_bytes() -> anyhow::Result<()> {
             limit(Limit::NameLen, pos(1, 17)),
         ),
         (&format!("<?{long}?><a/>"), limit(Limit::NameLen, pos(1, 3))),
+        // Errors in references point to `&`.
         (
             &format!("<a>&{long};</a>"),
-            limit(Limit::NameLen, pos(1, 5)),
+            limit(Limit::NameLen, pos(1, 4)),
+        ),
+        (
+            &format!("<a x='&{long};'/>"),
+            limit(Limit::NameLen, pos(1, 7)),
         ),
     ]);
+    // Processing instruction targets and entity names exactly at the limit are accepted
+    // (the entity is then unknown).
+    parse_str(&format!("<?{max} x?><a/>"))?;
+    check(&[(
+        &format!("<a>&{max};</a>"),
+        ErrorKind::UnknownEntity {
+            name: max.clone(),
+            position: pos(1, 4),
+        },
+    )]);
     Ok(())
 }
 
@@ -534,6 +557,16 @@ fn prefix_length_is_limited() -> anyhow::Result<()> {
         (
             &format!("<a xmlns:{long}='u'/>"),
             limit(Limit::PrefixLen, pos(1, 4)),
+        ),
+        // A declared prefix longer than `MAX_NAME_LEN` exceeds the prefix limit too.
+        (
+            &format!("<a xmlns:{}='u'/>", "p".repeat(MAX_NAME_LEN + 1)),
+            limit(Limit::PrefixLen, pos(1, 4)),
+        ),
+        // The local name of an element with the forbidden prefix `xmlns` is a normal local name.
+        (
+            &format!("<xmlns:{long}/>"),
+            namespace("prefix `xmlns` must not be used for elements", pos(1, 2)),
         ),
     ]);
     Ok(())

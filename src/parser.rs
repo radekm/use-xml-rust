@@ -303,7 +303,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Reads a qualified name `prefix:local` or `local`.
-    fn qname(&mut self, what: &str) -> Result<RawName<'a>, Error> {
+    ///
+    /// For an attribute `xmlns:prefix` (a namespace declaration) the local part is the declared
+    /// prefix, so it is limited by `MAX_PREFIX_LEN` instead of `MAX_NAME_LEN`.
+    fn qname(&mut self, what: &str, attribute: bool) -> Result<RawName<'a>, Error> {
         let start = self.pos;
         let first_end = self.ncname_end(start);
         if first_end == start {
@@ -330,8 +333,13 @@ impl<'a> Parser<'a> {
         if prefix.len() > MAX_PREFIX_LEN {
             return Err(self.limit_error(start, Limit::PrefixLen));
         }
-        if end - local_start > MAX_NAME_LEN {
-            return Err(self.limit_error(start, Limit::NameLen));
+        let (max_local_len, local_limit) = if attribute && prefix == "xmlns" {
+            (MAX_PREFIX_LEN, Limit::PrefixLen)
+        } else {
+            (MAX_NAME_LEN, Limit::NameLen)
+        };
+        if end - local_start > max_local_len {
+            return Err(self.limit_error(start, local_limit));
         }
         self.pos = end;
         Ok(RawName {
@@ -640,8 +648,11 @@ impl<'a> Parser<'a> {
         if name_end == name_start {
             return Err(self.xml_error(amp, "invalid reference"));
         }
+        if self.bytes.get(name_end) == Some(&b':') {
+            return Err(self.namespace_error(amp, "colon in entity name"));
+        }
         if name_end - name_start > MAX_NAME_LEN {
-            return Err(self.limit_error(name_start, Limit::NameLen));
+            return Err(self.limit_error(amp, Limit::NameLen));
         }
         if self.bytes.get(name_end) != Some(&b';') {
             return Err(self.xml_error(amp, UNCLOSED_REFERENCE));
@@ -791,7 +802,7 @@ impl<'a> Parser<'a> {
         }
         let position = self.position(tag_start);
         self.pos += 1;
-        let name = self.qname("element name")?;
+        let name = self.qname("element name", false)?;
 
         // Attributes.
         let mut raw_attrs = std::mem::take(&mut self.raw_attrs);
@@ -818,7 +829,7 @@ impl<'a> Parser<'a> {
             if raw_attrs.len() >= MAX_ATTRS {
                 return Err(self.limit_error(offset, Limit::Attrs));
             }
-            let attr_name = self.qname("attribute name")?;
+            let attr_name = self.qname("attribute name", true)?;
             self.skip_whitespace();
             self.expect("=", "expected `=` after attribute name")?;
             self.skip_whitespace();
@@ -953,7 +964,7 @@ impl<'a> Parser<'a> {
     fn end_tag(&mut self) -> Result<(), Error> {
         let tag_start = self.pos;
         self.pos += 2;
-        let name = self.qname("element name")?;
+        let name = self.qname("element name", false)?;
         self.skip_whitespace();
         self.expect(">", "expected `>` at the end of end tag")?;
         let Some(top) = self.stack.pop() else {

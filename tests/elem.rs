@@ -1112,7 +1112,6 @@ fn invalid_references_point_to_the_reference() {
         ("<a>a & b</a>", xml("invalid reference", pos(1, 6))),
         ("<r>\n <a>č&amp</a></r>", xml(not_closed, pos(2, 6))),
         ("<a>&</a>", xml("invalid reference", pos(1, 4))),
-        ("<a>&a:b;</a>", xml(not_closed, pos(1, 4))),
     ];
     for (input, expected) in cases {
         assert_eq!(parse_str(input).unwrap_err(), expected, "{input:?}");
