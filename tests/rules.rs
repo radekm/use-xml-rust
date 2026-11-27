@@ -906,6 +906,10 @@ fn error_messages() -> anyhow::Result<()> {
         "limit exceeded at line 1, column 1: more than 4294967296 elements"
     );
     assert_eq!(
+        unreachable(Limit::QualifiedNames),
+        "limit exceeded at line 1, column 1: more than 4294967296 qualified names"
+    );
+    assert_eq!(
         message("<a>\n&foo;</a>"),
         "unknown entity `foo` at line 2, column 1"
     );

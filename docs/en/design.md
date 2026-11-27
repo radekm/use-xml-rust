@@ -146,7 +146,7 @@ If a limit is exceeded, parsing fails with `LimitExceeded`:
 - `MAX_NAMESPACES = 256` different namespaces in a document (including the empty and the `xml` namespace).
   `Document::namespace` fails with the same error (without a position), and also for a namespace name
   longer than `MAX_NAMESPACE_LEN`.
-- `u32::MAX` qualified names.
+- `u32::MAX + 1` qualified names (the handles are all values of `u32`).
 - `MAX_ATTRS = 1000` attributes of one element, namespace declarations included.
 - `MAX_CHILD_NAMES = 1000` different qualified names of children of one element.
   Children with the same qualified name can repeat any number of times.

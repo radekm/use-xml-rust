@@ -80,7 +80,7 @@ pub enum Limit {
     NamespaceLen,
     /// [`MAX_NAMESPACES`](crate::MAX_NAMESPACES).
     Namespaces,
-    /// The number of qualified names (`u32::MAX`).
+    /// The number of qualified names (`u32::MAX + 1`).
     QualifiedNames,
     /// [`MAX_ATTRS`](crate::MAX_ATTRS).
     Attrs,
@@ -98,7 +98,9 @@ impl fmt::Display for Limit {
             Limit::PrefixLen => write!(f, "prefix longer than {MAX_PREFIX_LEN} bytes"),
             Limit::NamespaceLen => write!(f, "namespace longer than {MAX_NAMESPACE_LEN} bytes"),
             Limit::Namespaces => write!(f, "more than {MAX_NAMESPACES} namespaces"),
-            Limit::QualifiedNames => write!(f, "more than {} qualified names", u32::MAX),
+            Limit::QualifiedNames => {
+                write!(f, "more than {} qualified names", u64::from(u32::MAX) + 1)
+            }
             Limit::Attrs => write!(f, "element with more than {MAX_ATTRS} attributes"),
             Limit::ChildNames => write!(
                 f,

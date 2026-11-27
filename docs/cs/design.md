@@ -146,7 +146,7 @@ Při překročení limitu parsování skončí chybou `LimitExceeded`:
 - `MAX_NAMESPACES = 256` různých namespaců v dokumentu (včetně prázdného a namespacu `xml`).
   `Document::namespace` selže se stejnou chybou (bez pozice), a také pro jméno namespacu
   delší než `MAX_NAMESPACE_LEN`.
-- `u32::MAX` kvalifikovaných jmen.
+- `u32::MAX + 1` kvalifikovaných jmen (handly jsou všechny hodnoty `u32`).
 - `MAX_ATTRS = 1000` atributů jednoho elementu včetně deklarací namespaců.
 - `MAX_CHILD_NAMES = 1000` různých kvalifikovaných jmen dětí jednoho elementu.
   Děti se stejným kvalifikovaným jménem se mohou opakovat libovolněkrát.
