@@ -1,5 +1,7 @@
 //! Elements and the extraction API.
 
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::fmt;
 
 use crate::document::{Document, Node};
@@ -32,56 +34,45 @@ impl fmt::Debug for Elem<'_> {
     /// the number of children for each name, and its text.
     /// Values longer than [`MAX_VALUE_CHARS`](crate::MAX_VALUE_CHARS) characters are cut and end with `…`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        /// A value which is already formatted.
+        struct Raw(String);
+        impl fmt::Debug for Raw {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+        let value = |value: Option<&str>| {
+            Raw(value.map_or_else(
+                || "<used>".to_owned(),
+                |value| format!("{:?}", truncate_value(value)),
+            ))
+        };
+
+        // Everything is collected first, so no `RefCell` is borrowed while `f` writes.
         let node = self.node();
         let names = &self.doc.names;
-        let attrs: Vec<(String, String)> = node
+        let attrs: BTreeMap<String, Raw> = node
             .attrs
             .borrow()
             .iter()
-            .map(|(name, value)| {
-                let value = match value {
-                    Some(value) => format!("{:?}", truncate_value(value)),
-                    None => "<used>".to_owned(),
-                };
-                (names.qualified_name(*name).to_string(), value)
-            })
+            .map(|(name, v)| (names.qualified_name(*name).to_string(), value(v.as_deref())))
             .collect();
-        let children: Vec<(String, usize)> = node
+        let children: BTreeMap<String, usize> = node
             .children
             .borrow()
             .iter()
             .map(|(name, (_, elems))| (names.qualified_name(*name).to_string(), elems.len()))
             .collect();
         let text = node.text.take();
-        let text_debug = match &text {
-            Some(text) => format!("{:?}", truncate_value(text)),
-            None => "<used>".to_owned(),
-        };
+        let text_debug = value(text.as_deref());
         node.text.set(text);
 
-        struct Raw<'a>(&'a str);
-        impl fmt::Debug for Raw<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(self.0)
-            }
-        }
         f.debug_struct("Elem")
             .field("path", &self.path())
             .field("position", &node.position)
-            .field(
-                "attrs",
-                &attrs
-                    .iter()
-                    .map(|(k, v)| (k, Raw(v)))
-                    .collect::<std::collections::BTreeMap<_, _>>(),
-            )
-            .field(
-                "children",
-                &children
-                    .into_iter()
-                    .collect::<std::collections::BTreeMap<_, _>>(),
-            )
-            .field("text", &Raw(&text_debug))
+            .field("attrs", &attrs)
+            .field("children", &children)
+            .field("text", &text_debug)
             .finish()
     }
 }
@@ -258,27 +249,19 @@ impl<'doc> Elem<'doc> {
         if node.all_used.get() {
             return Err(self.error_already_used(item()));
         }
-        // The borrow ends before the value parser runs.
-        let value = {
-            let mut attrs = node.attrs.borrow_mut();
-            match attrs.get_mut(&name) {
-                Some(slot) => match slot.take() {
-                    Some(value) => Some(value),
-                    None => {
-                        drop(attrs);
-                        return Err(self.error_already_used(item()));
-                    }
-                },
-                None => {
-                    attrs.insert(name, None);
-                    None
-                }
+        // The borrow ends with the statement, before the value parser runs.
+        let value = match node.attrs.borrow_mut().entry(name) {
+            // A missing attribute is recorded as used.
+            Entry::Vacant(entry) => {
+                entry.insert(None);
+                return Ok(None);
             }
+            Entry::Occupied(mut entry) => entry.get_mut().take(),
         };
-        match value {
-            None => Ok(None),
-            Some(value) => self.run_parser(item, value.into_string(), parser).map(Some),
-        }
+        let Some(value) = value else {
+            return Err(self.error_already_used(item()));
+        };
+        self.run_parser(item, value.into_string(), parser).map(Some)
     }
 
     /// Returns the attribute converted by `parser`.
@@ -366,20 +349,14 @@ impl<'doc> Elem<'doc> {
             return Err(already_used());
         }
         let mut children = node.children.borrow_mut();
-        match children.get_mut(&name) {
-            Some((used, elems)) => {
-                if *used {
-                    drop(children);
-                    return Err(already_used());
-                }
-                *used = true;
-                Ok(f(elems))
-            }
-            None => {
-                children.insert(name, (true, Vec::with_capacity(0)));
-                Ok(f(&[]))
-            }
+        // A missing name is recorded with no children and then marked as used like any other.
+        let (used, elems) = children.entry(name).or_default();
+        if *used {
+            drop(children);
+            return Err(already_used());
         }
+        *used = true;
+        Ok(f(elems))
     }
 
     fn wrong_count(
