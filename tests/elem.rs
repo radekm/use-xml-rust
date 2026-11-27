@@ -9,6 +9,14 @@ fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
 }
 
+fn attr_item(namespace: &str, local_name: &str) -> Item {
+    Item::Attr(QualifiedName::new(namespace, local_name))
+}
+
+fn child_item(namespace: &str, local_name: &str) -> Item {
+    Item::Child(QualifiedName::new(namespace, local_name))
+}
+
 // ---------------------------------------------------------------------------
 // Basic usage (ported from UseData.Xml).
 // ---------------------------------------------------------------------------
@@ -101,7 +109,7 @@ fn prefixes() -> anyhow::Result<()> {
         ErrorKind::Missing {
             path: "/root".to_owned(),
             position: pos(2, 5),
-            item: Item::child("", "table")
+            item: child_item("", "table")
         }
     );
     let cell = e
@@ -254,12 +262,12 @@ fn namespaces_not_in_document_are_interned() -> anyhow::Result<()> {
         ErrorKind::Missing {
             path: "/a".to_owned(),
             position: pos(1, 1),
-            item: Item::child("urn:other", "y")
+            item: child_item("urn:other", "y")
         }
     );
     assert_eq!(
         doc.root().children(other, "y").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::child("urn:other", "y"))
+        already_used("/a", pos(1, 1), child_item("urn:other", "y"))
     );
     doc.check_all_used()?;
     Ok(())
@@ -684,7 +692,7 @@ fn no_child_when_one_child_is_expected() -> anyhow::Result<()> {
         ErrorKind::Missing {
             path: "/dog".to_owned(),
             position: pos(1, 1),
-            item: Item::child("", "name")
+            item: child_item("", "name")
         }
     );
     Ok(())
@@ -699,7 +707,7 @@ fn no_attribute_when_one_attribute_is_expected() -> anyhow::Result<()> {
         ErrorKind::Missing {
             path: "/city".to_owned(),
             position: pos(1, 1),
-            item: Item::attr("", "name")
+            item: attr_item("", "name")
         }
     );
     Ok(())
@@ -715,7 +723,7 @@ fn invalid_value() -> anyhow::Result<()> {
         ErrorKind::InvalidValue {
             path: "/r/n[1]".to_owned(),
             position: pos(2, 3),
-            item: Item::attr("", "v"),
+            item: attr_item("", "v"),
             message: r#"expected u32, got "x""#.to_owned()
         }
     );
@@ -758,7 +766,7 @@ fn attribute_can_be_used_once() -> anyhow::Result<()> {
     e.attr(NO, "x", parse::string)?;
     assert_eq!(
         e.attr_opt(NO, "x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::attr("", "x"))
+        already_used("/a", pos(1, 1), attr_item("", "x"))
     );
     Ok(())
 }
@@ -770,7 +778,7 @@ fn missing_attribute_can_be_requested_once() -> anyhow::Result<()> {
     assert_eq!(e.attr_opt(NO, "x", parse::string)?, None);
     assert_eq!(
         e.attr_opt(NO, "x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::attr("", "x"))
+        already_used("/a", pos(1, 1), attr_item("", "x"))
     );
     // `attr` reports the missing attribute only for the first request.
     let doc = parse_str("<a/>")?;
@@ -780,12 +788,12 @@ fn missing_attribute_can_be_requested_once() -> anyhow::Result<()> {
         ErrorKind::Missing {
             path: "/a".to_owned(),
             position: pos(1, 1),
-            item: Item::attr("", "x")
+            item: attr_item("", "x")
         }
     );
     assert_eq!(
         e.attr(NO, "x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::attr("", "x"))
+        already_used("/a", pos(1, 1), attr_item("", "x"))
     );
     Ok(())
 }
@@ -809,13 +817,13 @@ fn children_can_be_used_once() -> anyhow::Result<()> {
     e.children(NO, "b")?;
     assert_eq!(
         e.child(NO, "b").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::child("", "b"))
+        already_used("/a", pos(1, 1), child_item("", "b"))
     );
     // Missing children are tracked too.
     assert_eq!(e.child_opt(NO, "c")?.map(|c| c.local_name()), None);
     assert_eq!(
         e.children(NO, "c").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::child("", "c"))
+        already_used("/a", pos(1, 1), child_item("", "c"))
     );
     Ok(())
 }
@@ -828,7 +836,7 @@ fn ignore_all_marks_everything_as_used() -> anyhow::Result<()> {
     e.check_all_used()?;
     assert_eq!(
         e.attr(NO, "x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::attr("", "x"))
+        already_used("/a", pos(1, 1), attr_item("", "x"))
     );
     assert_eq!(
         e.text(parse::string).unwrap_err(),
@@ -836,7 +844,7 @@ fn ignore_all_marks_everything_as_used() -> anyhow::Result<()> {
     );
     assert_eq!(
         e.children(NO, "b").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::child("", "b"))
+        already_used("/a", pos(1, 1), child_item("", "b"))
     );
     Ok(())
 }
@@ -849,7 +857,7 @@ fn ignore_all_on_parent_affects_previously_obtained_child() -> anyhow::Result<()
     e.ignore_all();
     assert_eq!(
         b.attr(NO, "y", parse::string).unwrap_err(),
-        already_used("/a/b[1]", pos(1, 4), Item::attr("", "y"))
+        already_used("/a/b[1]", pos(1, 4), attr_item("", "y"))
     );
     e.check_all_used()?;
     Ok(())
@@ -891,7 +899,7 @@ fn unused_element() -> anyhow::Result<()> {
             // The path and the position of the unused child, not of its parent.
             path: "/company/address[1]/city[1]".to_owned(),
             position: pos(4, 9),
-            item: Item::child("", "city")
+            item: child_item("", "city")
         }
     );
     Ok(())
@@ -908,7 +916,7 @@ fn unused_child_points_to_the_first_child_with_the_name() -> anyhow::Result<()> 
         ErrorKind::Unused {
             path: "/r/b[1]".to_owned(),
             position: pos(3, 3),
-            item: Item::child("", "b")
+            item: child_item("", "b")
         }
     );
     assert_eq!(
@@ -972,7 +980,7 @@ fn unused_attribute() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/company/address[1]".to_owned(),
             position: pos(2, 5),
-            item: Item::attr("", "street")
+            item: attr_item("", "street")
         }
     );
     Ok(())
@@ -1011,7 +1019,7 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     // Attributes by the first occurrence of their names.
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a", pos(1, 1), Item::attr("", "z"))
+        unused("/a", pos(1, 1), attr_item("", "z"))
     );
     e.attr(NO, "y", parse::string)?;
     e.attr(NO, "z", parse::string)?;
@@ -1027,12 +1035,12 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     let e = doc.root();
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a", pos(1, 1), Item::attr("", "x"))
+        unused("/a", pos(1, 1), attr_item("", "x"))
     );
     e.attr(NO, "x", parse::string)?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a/b[1]", pos(1, 10), Item::child("", "b"))
+        unused("/a/b[1]", pos(1, 10), child_item("", "b"))
     );
     // Own items before descendants.
     let doc = parse_str(r#"<a><b y="1"/><c/></a>"#)?;
@@ -1040,7 +1048,7 @@ fn check_order_attrs_then_text_then_children() -> anyhow::Result<()> {
     e.children(NO, "b")?;
     assert_eq!(
         e.check_all_used().unwrap_err(),
-        unused("/a/c[1]", pos(1, 14), Item::child("", "c"))
+        unused("/a/c[1]", pos(1, 14), child_item("", "c"))
     );
     Ok(())
 }
@@ -1055,7 +1063,7 @@ fn check_reports_first_unused_descendant_in_document_order() -> anyhow::Result<(
         ErrorKind::Unused {
             path: "/r/i[2]".to_owned(),
             position: pos(1, 8),
-            item: Item::attr("", "x")
+            item: attr_item("", "x")
         }
     );
     Ok(())
@@ -1289,15 +1297,15 @@ fn missing_names_are_already_used_after_ignore_all() -> anyhow::Result<()> {
     e.ignore_all();
     assert_eq!(
         e.attr_opt(NO, "x", parse::string).unwrap_err(),
-        already_used("/a", pos(1, 1), Item::attr("", "x"))
+        already_used("/a", pos(1, 1), attr_item("", "x"))
     );
     assert_eq!(
         e.child_opt(NO, "y").unwrap_err(),
-        already_used("/a", pos(1, 1), Item::child("", "y"))
+        already_used("/a", pos(1, 1), child_item("", "y"))
     );
     assert_eq!(
         b.children(NO, "z").unwrap_err(),
-        already_used("/a/b[1]", pos(1, 4), Item::child("", "z"))
+        already_used("/a/b[1]", pos(1, 4), child_item("", "z"))
     );
     e.check_all_used()?;
     Ok(())
@@ -1313,7 +1321,7 @@ fn ignore_all_on_child_does_not_hide_unused_siblings() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/a/b[2]".to_owned(),
             position: pos(1, 14),
-            item: Item::attr("", "y")
+            item: attr_item("", "y")
         }
     );
     Ok(())
@@ -1329,7 +1337,7 @@ fn value_parser_can_use_the_same_element() -> anyhow::Result<()> {
         assert!(e.attr_opt(NO, "missing", parse::string)?.is_none());
         assert_eq!(
             e.attr(NO, "x", parse::string).unwrap_err(),
-            already_used("/a", pos(1, 1), Item::attr("", "x"))
+            already_used("/a", pos(1, 1), attr_item("", "x"))
         );
         Ok(format!("{s}{y}"))
     })?;
@@ -1422,7 +1430,7 @@ fn debug_prints_only_the_element() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/r".to_owned(),
             position: pos(1, 1),
-            item: Item::attr("", "x")
+            item: attr_item("", "x")
         }
     );
     Ok(())
@@ -1462,7 +1470,7 @@ fn invalid_value_cuts_long_values() -> anyhow::Result<()> {
         ErrorKind::InvalidValue {
             path: "/a".to_owned(),
             position: pos(1, 1),
-            item: Item::attr("", "x"),
+            item: attr_item("", "x"),
             message: format!("expected u8, got {exact:?}")
         }
     );

@@ -519,7 +519,7 @@ impl<'doc> Elem<'doc> {
     /// The traversal does not use recursion.
     ///
     /// ```
-    /// use use_xml::{ErrorKind, Item, NamespaceHandle};
+    /// use use_xml::{ErrorKind, Item, NamespaceHandle, QualifiedName};
     ///
     /// let doc = use_xml::parse_str(r#"<r><a x="1"/></r>"#)?;
     /// doc.root().child(NamespaceHandle::NO_NAMESPACE, "a")?;
@@ -528,7 +528,7 @@ impl<'doc> Elem<'doc> {
     /// assert_eq!(error.kind(), &ErrorKind::Unused {
     ///     path: "/r/a[1]".to_owned(),
     ///     position: use_xml::Position { line: 1, column: 4 },
-    ///     item: Item::attr("", "x"),
+    ///     item: Item::Attr(QualifiedName::new("", "x")),
     /// });
     /// # Ok::<(), use_xml::Error>(())
     /// ```

@@ -3,13 +3,22 @@
 
 use use_xml::{
     ErrorKind, Item, Limit, MAX_ATTRS, MAX_CHILD_NAMES, MAX_DEPTH, MAX_NAME_LEN, MAX_NAMESPACE_LEN,
-    MAX_NAMESPACES, MAX_PREFIX_LEN, NamespaceHandle, Position, parse, parse_bytes, parse_str,
+    MAX_NAMESPACES, MAX_PREFIX_LEN, NamespaceHandle, Position, QualifiedName, parse, parse_bytes,
+    parse_str,
 };
 
 const NO: NamespaceHandle = NamespaceHandle::NO_NAMESPACE;
 
 fn pos(line: u32, column: u32) -> Position {
     Position { line, column }
+}
+
+fn attr_item(namespace: &str, local_name: &str) -> Item {
+    Item::Attr(QualifiedName::new(namespace, local_name))
+}
+
+fn child_item(namespace: &str, local_name: &str) -> Item {
+    Item::Child(QualifiedName::new(namespace, local_name))
 }
 
 fn xml(message: &str, position: Position) -> ErrorKind {
@@ -902,7 +911,7 @@ fn deep_document_needs_little_stack() {
             ErrorKind::Unused {
                 path: "/a".to_owned() + &"/a[1]".repeat(MAX_DEPTH - 1),
                 position: pos(1, 3 * MAX_DEPTH as u32 - 2),
-                item: Item::attr("", "x")
+                item: attr_item("", "x")
             }
         );
         doc.root().ignore_all();
@@ -935,7 +944,7 @@ fn check_all_used_goes_deep_before_next_name() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/r/b[1]".to_owned(),
             position: pos(1, 4),
-            item: Item::attr("", "y")
+            item: attr_item("", "y")
         }
     );
     Ok(())
@@ -952,7 +961,7 @@ fn check_all_used_orders_names_by_first_occurrence() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/r/y[1]".to_owned(),
             position: pos(1, 20),
-            item: Item::child("", "y")
+            item: child_item("", "y")
         }
     );
     e.child(NO, "y")?;
@@ -961,7 +970,7 @@ fn check_all_used_orders_names_by_first_occurrence() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/r/a[1]".to_owned(),
             position: pos(1, 4),
-            item: Item::attr("", "z")
+            item: attr_item("", "z")
         }
     );
     a.attr(NO, "z", parse::u8)?;
@@ -1154,24 +1163,24 @@ fn requested_local_names_are_checked() -> anyhow::Result<()> {
     let not_ncname = "local name is not an NCName (a name without a colon)";
     assert_eq!(
         e.attr(NO, "p:x", parse::string).unwrap_err(),
-        invalid(Item::attr("", "p:x"), not_ncname)
+        invalid(attr_item("", "p:x"), not_ncname)
     );
     assert_eq!(
         e.attr_opt(NO, "", parse::string).unwrap_err(),
-        invalid(Item::attr("", ""), not_ncname)
+        invalid(attr_item("", ""), not_ncname)
     );
     let p = doc.namespace("urn:p")?;
     assert_eq!(
         e.child(p, "1a").unwrap_err(),
-        invalid(Item::child("urn:p", "1a"), not_ncname)
+        invalid(child_item("urn:p", "1a"), not_ncname)
     );
     assert_eq!(
         e.child_opt(NO, "a b").unwrap_err(),
-        invalid(Item::child("", "a b"), not_ncname)
+        invalid(child_item("", "a b"), not_ncname)
     );
     assert_eq!(
         e.children(NO, ":a").unwrap_err(),
-        invalid(Item::child("", ":a"), not_ncname)
+        invalid(child_item("", ":a"), not_ncname)
     );
     // A name at the limit is valid, a longer one is cut in the error.
     let max = "a".repeat(MAX_NAME_LEN);
@@ -1179,7 +1188,7 @@ fn requested_local_names_are_checked() -> anyhow::Result<()> {
     assert_eq!(
         e.children(NO, &format!("{max}a")).unwrap_err(),
         invalid(
-            Item::child("", &format!("{}…", &max[..100])),
+            child_item("", &format!("{}…", &max[..100])),
             "local name longer than 512 bytes"
         )
     );
@@ -1207,7 +1216,7 @@ fn requested_local_names_are_checked() -> anyhow::Result<()> {
         ErrorKind::Unused {
             path: "/r".to_owned(),
             position: pos(1, 1),
-            item: Item::attr("", "x")
+            item: attr_item("", "x")
         }
     );
     assert_eq!(e.attr(NO, "x", parse::u8)?, 1);

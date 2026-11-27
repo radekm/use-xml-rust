@@ -78,6 +78,8 @@ A Rust library for extracting data from XML, modeled on
     (or `LimitExceeded` if it is too long). Namespace names are not checked to be URIs.
 15. `MixedContent` points to the significant text (before or after the child elements),
     not to the element.
+16. `Document::namespace_uri`, `Item::attr`, `Item::child`, `parse::map`, and `parse::validate`
+    were removed: a value parser is any `FnOnce(String)`, so parsers are combined by closures.
 
 ## Open questions
 

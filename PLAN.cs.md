@@ -78,6 +78,8 @@ Knihovna v Rustu pro extrakci dat z XML, inspirovaná
     (nebo `LimitExceeded`, pokud je příliš dlouhé). Nekontroluje se, že jména namespaců jsou URI.
 15. `MixedContent` ukazuje na významný text (před dětskými elementy nebo za nimi),
     ne na element.
+16. `Document::namespace_uri`, `Item::attr`, `Item::child`, `parse::map` a `parse::validate`
+    byly odstraněny: parser hodnot je libovolné `FnOnce(String)`, takže se parsery kombinují closurami.
 
 ## Otevřené otázky
 

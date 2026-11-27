@@ -46,18 +46,6 @@ pub enum Item {
     Text,
 }
 
-impl Item {
-    /// An attribute with the given namespace name and local name.
-    pub fn attr(namespace: &str, local_name: &str) -> Self {
-        Item::Attr(QualifiedName::new(namespace, local_name))
-    }
-
-    /// Children with the given namespace name and local name.
-    pub fn child(namespace: &str, local_name: &str) -> Self {
-        Item::Child(QualifiedName::new(namespace, local_name))
-    }
-}
-
 impl fmt::Display for Item {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

@@ -240,24 +240,6 @@ fn date_time_offset() {
 }
 
 #[test]
-fn map_and_validate() {
-    let half = parse::map(parse::u32, |n| {
-        if n % 2 == 0 {
-            Ok(n / 2)
-        } else {
-            Err("expected even number".to_owned())
-        }
-    });
-    assert_eq!(half("8".to_owned()), Ok(4));
-    assert_eq!(half("7".to_owned()), Err("expected even number".to_owned()));
-    assert!(half("x".to_owned()).is_err());
-
-    let small = parse::validate(parse::u32, |n| (*n > 10).then(|| "too big".to_owned()));
-    assert_eq!(small("10".to_owned()), Ok(10));
-    assert_eq!(small("11".to_owned()), Err("too big".to_owned()));
-}
-
-#[test]
 fn date_time_offset_must_be_convertible_to_utc() {
     // The UTC equivalent of these date times is outside of the range of `time`,
     // `OffsetDateTime::to_offset(UtcOffset::UTC)` would panic on them.

@@ -290,7 +290,6 @@ Modul `parse` poskytuje hotové parsery převzaté z originálu:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
 celočíselné typy (`i32`, `u32`, `i64`, `u64`, …), `decimal` (`rust_decimal::Decimal`),
 `decimal_non_negative`, `bool`, `date_time_utc` a `date_time_offset` (oba `time::OffsetDateTime`).
-Pomocné funkce `map` / `validate` parsery kombinují.
 
 Formáty hodnot (všechny striktní, bez okolních bílých znaků):
 

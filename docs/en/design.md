@@ -290,7 +290,6 @@ The `parse` module provides ready-made parsers, ported from the original:
 `string`, `string_non_empty`, `string_non_whitespace`, `one_of`, `enumeration`,
 integer types (`i32`, `u32`, `i64`, `u64`, …), `decimal` (`rust_decimal::Decimal`),
 `decimal_non_negative`, `bool`, `date_time_utc`, and `date_time_offset` (both `time::OffsetDateTime`).
-Helpers `map` / `validate` combine parsers.
 
 Value formats (all strict, no surrounding whitespace):
 
