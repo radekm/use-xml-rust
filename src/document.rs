@@ -95,6 +95,7 @@ pub struct Document {
 
 impl Document {
     /// Returns the root element.
+    #[must_use]
     pub fn root(&self) -> Elem<'_> {
         // A document always has a root element, the parser fails otherwise.
         Elem::new(self, 0)

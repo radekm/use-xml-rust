@@ -104,6 +104,7 @@ impl QualifiedName {
     /// assert_eq!(name.to_string(), "{urn:x}item");
     /// assert_eq!(use_xml::QualifiedName::new("", "item").to_string(), "item");
     /// ```
+    #[must_use]
     pub fn new(namespace: impl Into<String>, local_name: impl Into<String>) -> Self {
         Self {
             namespace: namespace.into(),

@@ -35,6 +35,7 @@
 //! # Ok::<(), use_xml::Error>(())
 //! ```
 #![forbid(unsafe_code)]
+#![warn(clippy::must_use_candidate)]
 
 mod document;
 mod elem;

@@ -94,31 +94,37 @@ impl<'doc> Elem<'doc> {
     }
 
     /// The document of the element.
+    #[must_use]
     pub fn document(self) -> &'doc Document {
         self.doc
     }
 
     /// The parent element, `None` for the root.
+    #[must_use]
     pub fn parent(self) -> Option<Elem<'doc>> {
         self.node().parent.map(|p| Elem::new(self.doc, p))
     }
 
     /// The local name of the element (without a prefix).
+    #[must_use]
     pub fn local_name(self) -> &'doc str {
         self.doc.names.frozen_name(self.node().name).1
     }
 
     /// The namespace of the element.
+    #[must_use]
     pub fn namespace(self) -> NamespaceHandle {
         self.doc.names.frozen_name(self.node().name).0
     }
 
     /// The namespace name (URI) of the element; empty if the element is in no namespace.
+    #[must_use]
     pub fn namespace_uri(self) -> &'doc str {
         self.doc.names.frozen_namespace_uri(self.namespace())
     }
 
     /// The name of the element as written in the document, including the prefix.
+    #[must_use]
     pub fn prefixed_name(self) -> &'doc str {
         self.doc.names.raw_name(self.node().raw_name)
     }
@@ -127,11 +133,13 @@ impl<'doc> Elem<'doc> {
     ///
     /// Names are written as in the document (with prefixes). The root has no index;
     /// other elements have a 1-based index among siblings with the same qualified name.
+    #[must_use]
     pub fn path(self) -> String {
         self.doc.path(self.index)
     }
 
     /// Position of the start tag of the element in the source document.
+    #[must_use]
     pub fn position(self) -> Position {
         self.node().position
     }

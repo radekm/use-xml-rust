@@ -117,21 +117,25 @@ pub struct Error(Box<ErrorKind>);
 
 impl Error {
     /// Returns the details of the error.
+    #[must_use]
     pub fn kind(&self) -> &ErrorKind {
         &self.0
     }
 
     /// Converts the error into its details.
+    #[must_use]
     pub fn into_kind(self) -> ErrorKind {
         *self.0
     }
 
     /// Returns the position in the source document. See [`ErrorKind::position`].
+    #[must_use]
     pub fn position(&self) -> Option<Position> {
         self.0.position()
     }
 
     /// Returns the path of the element related to the error. See [`ErrorKind::path`].
+    #[must_use]
     pub fn path(&self) -> Option<&str> {
         self.0.path()
     }
@@ -392,6 +396,7 @@ impl ErrorKind {
     /// Returns `None` only for [`LimitExceeded`](Self::LimitExceeded)
     /// from [`Document::namespace`](crate::Document::namespace)
     /// and for [`InvalidNamespace`](Self::InvalidNamespace).
+    #[must_use]
     pub fn position(&self) -> Option<Position> {
         match self {
             Self::LimitExceeded { position, .. } => *position,
@@ -420,6 +425,7 @@ impl ErrorKind {
     /// [`Encoding`](Self::Encoding), [`UnexpectedNode`](Self::UnexpectedNode),
     /// [`LimitExceeded`](Self::LimitExceeded), [`UnknownEntity`](Self::UnknownEntity),
     /// and [`InvalidNamespace`](Self::InvalidNamespace), which are not related to a complete element.
+    #[must_use]
     pub fn path(&self) -> Option<&str> {
         match self {
             Self::Xml { .. }
