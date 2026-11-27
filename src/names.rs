@@ -1,6 +1,5 @@
 //! Interning of namespaces and qualified names.
 
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -274,23 +273,16 @@ impl NameTable {
         self.frozen.namespace_uri(ns).unwrap_or("")
     }
 
-    /// Namespace name of any handle. Names from the document are borrowed,
-    /// names interned later are copied because they are behind a `RefCell`.
-    pub(crate) fn namespace_uri_cow(&self, ns: NamespaceHandle) -> Cow<'_, str> {
-        match self.frozen.namespace_uri(ns) {
-            Some(uri) => Cow::Borrowed(uri),
-            None => Cow::Owned(
-                self.extra
-                    .borrow()
-                    .namespace_uri(ns)
-                    .unwrap_or_default()
-                    .to_owned(),
-            ),
-        }
-    }
-
     pub(crate) fn namespace_uri(&self, ns: NamespaceHandle) -> String {
-        self.namespace_uri_cow(ns).into_owned()
+        match self.frozen.namespace_uri(ns) {
+            Some(uri) => uri.to_owned(),
+            None => self
+                .extra
+                .borrow()
+                .namespace_uri(ns)
+                .unwrap_or_default()
+                .to_owned(),
+        }
     }
 
     pub(crate) fn find_name(

@@ -256,7 +256,6 @@ let doc = use_xml::parse_bytes(bytes)?;        // Result<Document, Error>, jen U
 
 let ns = doc.namespace("urn:x")?;              // NamespaceHandle; internuje se, pokud chybí
 let no = doc.namespace("")?;                   // = NamespaceHandle::NO_NAMESPACE
-doc.namespace_uri(ns);                         // Option<Cow<str>>, pro namespacy z dokumentu vypůjčené
 let root = doc.root();                         // Elem<'_>
 
 root.local_name();                             // &str

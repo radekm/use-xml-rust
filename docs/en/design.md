@@ -256,7 +256,6 @@ let doc = use_xml::parse_bytes(bytes)?;        // Result<Document, Error>, UTF-8
 
 let ns = doc.namespace("urn:x")?;              // NamespaceHandle; interned if missing
 let no = doc.namespace("")?;                   // = NamespaceHandle::NO_NAMESPACE
-doc.namespace_uri(ns);                         // Option<Cow<str>>, borrowed for namespaces from the document
 let root = doc.root();                         // Elem<'_>
 
 root.local_name();                             // &str

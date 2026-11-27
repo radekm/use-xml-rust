@@ -248,7 +248,6 @@ fn namespaces_not_in_document_are_interned() -> anyhow::Result<()> {
     assert_eq!(doc.namespace("")?, NO);
     let other = doc.namespace("urn:other")?;
     assert_eq!(doc.namespace("urn:other")?, other);
-    assert_eq!(doc.namespace_uri(other).as_deref(), Some("urn:other"));
     assert_eq!(doc.root().attr_opt(other, "x", parse::string)?, None);
     assert_eq!(
         doc.root().child(other, "y").unwrap_err(),
@@ -271,7 +270,6 @@ fn namespace_handle_of_another_document_is_rejected() -> anyhow::Result<()> {
     let doc = parse_str("<a/>")?;
     let other = parse_str("<a/>")?;
     let ns = other.namespace("urn:other")?;
-    assert_eq!(doc.namespace_uri(ns), None);
     let invalid = ErrorKind::InvalidNamespaceHandle {
         path: "/a".to_owned(),
         position: pos(1, 1),
