@@ -348,6 +348,17 @@ fn qualified_names_are_checked() {
             "<a x='č&a:b;'/>",
             namespace("colon in entity name", pos(1, 8)),
         ),
+        // A colon may start an XML name, so these are namespace errors too.
+        (
+            "<?:a?><a/>",
+            namespace("colon in processing instruction target", pos(1, 3)),
+        ),
+        (
+            "<a><?:?></a>",
+            namespace("colon in processing instruction target", pos(1, 6)),
+        ),
+        ("<a>&:a;</a>", namespace("colon in entity name", pos(1, 4))),
+        ("<a x='&:;'/>", namespace("colon in entity name", pos(1, 7))),
     ]);
 }
 

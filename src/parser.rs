@@ -297,9 +297,10 @@ impl<'a> Parser<'a> {
     fn ncname(&mut self, what: &str) -> Result<&'a str, Error> {
         let start = self.pos;
         let end = self.ncname_end(start);
-        if end == start {
+        if end == start && self.peek() != Some(b':') {
             return Err(self.xml_error(start, format!("expected {what}")));
         }
+        // A colon anywhere (also at the start) is valid in XML names but not with namespaces.
         if self.bytes.get(end) == Some(&b':') {
             return Err(self.namespace_error(start, format!("colon in {what}")));
         }
@@ -662,9 +663,10 @@ impl<'a> Parser<'a> {
         }
         let name_start = self.pos;
         let name_end = self.ncname_end(name_start);
-        if name_end == name_start {
+        if name_end == name_start && self.peek() != Some(b':') {
             return Err(self.xml_error(amp, "invalid reference"));
         }
+        // A colon anywhere (also at the start) is valid in XML names but not with namespaces.
         if self.bytes.get(name_end) == Some(&b':') {
             return Err(self.namespace_error(amp, "colon in entity name"));
         }
