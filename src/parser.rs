@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::document::{Document, MAX_DEPTH, Node, format_path, intern_limit};
+use crate::document::{Document, MAX_DEPTH, Node, format_path};
 use crate::error::{Error, ErrorKind, Limit, Position};
 use crate::names::{
     Interner, MAX_ATTRS, MAX_CHILD_NAMES, MAX_NAME_LEN, MAX_NAMESPACE_LEN, MAX_PREFIX_LEN,
@@ -797,7 +797,7 @@ impl<'a> Parser<'a> {
         let ns = self
             .interner
             .namespace(uri)
-            .map_err(|e| self.limit_error(offset, intern_limit(e)))?;
+            .map_err(|limit| self.limit_error(offset, limit))?;
         let previous = self.bindings.insert(prefix, ns);
         self.undo.push((prefix, previous));
         Ok(())
@@ -897,11 +897,11 @@ impl<'a> Parser<'a> {
         let qname = self
             .interner
             .name(ns, name.local)
-            .map_err(|e| self.limit_error(tag_start, intern_limit(e)))?;
+            .map_err(|limit| self.limit_error(tag_start, limit))?;
         let raw_name = self
             .interner
             .raw_name(name.raw)
-            .map_err(|e| self.limit_error(tag_start, intern_limit(e)))?;
+            .map_err(|limit| self.limit_error(tag_start, limit))?;
         let Ok(node_index) = u32::try_from(self.nodes.len()) else {
             return Err(self.limit_error(tag_start, Limit::Elements));
         };
@@ -956,7 +956,7 @@ impl<'a> Parser<'a> {
                 let qname = self
                     .interner
                     .name(ns, attr.name.local)
-                    .map_err(|e| self.limit_error(attr.offset, intern_limit(e)))?;
+                    .map_err(|limit| self.limit_error(attr.offset, limit))?;
                 attrs
                     .insert(qname, Some(attr.value.into_owned().into_boxed_str()))
                     .is_some()

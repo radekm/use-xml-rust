@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
 
+use crate::error::Limit;
+
 /// Maximum length of a local name of an element or an attribute in bytes
 /// (also of a processing instruction target and of an entity name).
 pub const MAX_NAME_LEN: usize = 512;
@@ -102,13 +104,6 @@ impl fmt::Display for QualifiedName {
     }
 }
 
-/// Why interning failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InternError {
-    TooManyNamespaces,
-    TooManyQualifiedNames,
-}
-
 /// One level of interned names. Handles of a level start at the given offsets,
 /// so the handles of the level created after parsing continue after the handles of the parser.
 #[derive(Default)]
@@ -127,13 +122,12 @@ impl Names {
         self.namespace_map.get(uri).copied()
     }
 
-    fn add_namespace(&mut self, uri: &str) -> Result<NamespaceHandle, InternError> {
+    fn add_namespace(&mut self, uri: &str) -> Result<NamespaceHandle, Limit> {
         let index = self.namespace_offset + self.namespaces.len();
         if index >= MAX_NAMESPACES {
-            return Err(InternError::TooManyNamespaces);
+            return Err(Limit::Namespaces);
         }
-        let handle =
-            NamespaceHandle(u8::try_from(index).map_err(|_| InternError::TooManyNamespaces)?);
+        let handle = NamespaceHandle(u8::try_from(index).map_err(|_| Limit::Namespaces)?);
         self.namespaces.push(uri.into());
         self.namespace_map.insert(uri.into(), handle);
         Ok(handle)
@@ -148,15 +142,9 @@ impl Names {
         self.name_map.get(&ns)?.get(local).copied()
     }
 
-    fn add_name(
-        &mut self,
-        ns: NamespaceHandle,
-        local: &str,
-    ) -> Result<QualifiedNameHandle, InternError> {
+    fn add_name(&mut self, ns: NamespaceHandle, local: &str) -> Result<QualifiedNameHandle, Limit> {
         let index = self.name_offset + self.names.len();
-        let handle = QualifiedNameHandle(
-            u32::try_from(index).map_err(|_| InternError::TooManyQualifiedNames)?,
-        );
+        let handle = QualifiedNameHandle(u32::try_from(index).map_err(|_| Limit::QualifiedNames)?);
         self.names.push((ns, local.into()));
         self.name_map
             .entry(ns)
@@ -192,7 +180,7 @@ impl Interner {
         }
     }
 
-    pub(crate) fn namespace(&mut self, uri: &str) -> Result<NamespaceHandle, InternError> {
+    pub(crate) fn namespace(&mut self, uri: &str) -> Result<NamespaceHandle, Limit> {
         match self.names.find_namespace(uri) {
             Some(handle) => Ok(handle),
             None => self.names.add_namespace(uri),
@@ -203,19 +191,18 @@ impl Interner {
         &mut self,
         ns: NamespaceHandle,
         local: &str,
-    ) -> Result<QualifiedNameHandle, InternError> {
+    ) -> Result<QualifiedNameHandle, Limit> {
         match self.names.find_name(ns, local) {
             Some(handle) => Ok(handle),
             None => self.names.add_name(ns, local),
         }
     }
 
-    pub(crate) fn raw_name(&mut self, raw: &str) -> Result<u32, InternError> {
+    pub(crate) fn raw_name(&mut self, raw: &str) -> Result<u32, Limit> {
         if let Some(&handle) = self.raw_name_map.get(raw) {
             return Ok(handle);
         }
-        let handle =
-            u32::try_from(self.raw_names.len()).map_err(|_| InternError::TooManyQualifiedNames)?;
+        let handle = u32::try_from(self.raw_names.len()).map_err(|_| Limit::QualifiedNames)?;
         self.raw_names.push(raw.into());
         self.raw_name_map.insert(raw.into(), handle);
         Ok(handle)
@@ -252,7 +239,7 @@ pub(crate) struct NameTable {
 }
 
 impl NameTable {
-    pub(crate) fn namespace(&self, uri: &str) -> Result<NamespaceHandle, InternError> {
+    pub(crate) fn namespace(&self, uri: &str) -> Result<NamespaceHandle, Limit> {
         if let Some(handle) = self.frozen.find_namespace(uri) {
             return Ok(handle);
         }
@@ -299,7 +286,7 @@ impl NameTable {
         &self,
         ns: NamespaceHandle,
         local: &str,
-    ) -> Result<QualifiedNameHandle, InternError> {
+    ) -> Result<QualifiedNameHandle, Limit> {
         match self.find_name(ns, local) {
             Some(handle) => Ok(handle),
             None => self.extra.borrow_mut().add_name(ns, local),

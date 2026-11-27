@@ -8,8 +8,7 @@ use crate::elem::Elem;
 use crate::error::truncate_value;
 use crate::error::{Error, ErrorKind, Limit, Position};
 use crate::names::{
-    InternError, MAX_NAMESPACE_LEN, NameTable, NamespaceHandle, QualifiedNameHandle,
-    XMLNS_NAMESPACE,
+    MAX_NAMESPACE_LEN, NameTable, NamespaceHandle, QualifiedNameHandle, XMLNS_NAMESPACE,
 };
 use crate::parser;
 
@@ -148,9 +147,9 @@ impl Document {
                 "namespace `{XMLNS_NAMESPACE}` must not be declared"
             )));
         }
-        self.names.namespace(uri).map_err(|e| {
+        self.names.namespace(uri).map_err(|limit| {
             ErrorKind::LimitExceeded {
-                limit: intern_limit(e),
+                limit,
                 position: None,
             }
             .into()
@@ -183,13 +182,6 @@ impl fmt::Debug for Document {
             .field("elements", &self.nodes.len())
             .field("root", &self.root())
             .finish()
-    }
-}
-
-pub(crate) fn intern_limit(e: InternError) -> Limit {
-    match e {
-        InternError::TooManyNamespaces => Limit::Namespaces,
-        InternError::TooManyQualifiedNames => Limit::QualifiedNames,
     }
 }
 

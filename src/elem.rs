@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::document::{Document, Node, intern_limit};
+use crate::document::{Document, Node};
 use crate::error::{Error, ErrorKind, Item, Position, truncate_value};
 use crate::names::{MAX_NAME_LEN, NamespaceHandle, QualifiedName, QualifiedNameHandle};
 use crate::parser::is_ncname;
@@ -188,9 +188,9 @@ impl<'doc> Elem<'doc> {
             }
             .into());
         }
-        self.doc.names.intern_name(ns, local).map_err(|e| {
+        self.doc.names.intern_name(ns, local).map_err(|limit| {
             ErrorKind::LimitExceeded {
-                limit: intern_limit(e),
+                limit,
                 position: Some(self.position()),
             }
             .into()
